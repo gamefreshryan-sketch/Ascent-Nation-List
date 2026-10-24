@@ -2,25 +2,23 @@ let currentLevels = [];
 let currentTab = "main";
 let selectedLevelId = null;
 let currentUser = null;
-let currentProfile = null; // Profile from public.profiles
+let currentProfile = null;
 let isModerator = false;
 let activeProfilePlayer = null;
-let currentProfileSort = "rank"; // 'rank', 'points', 'pct', 'name'
-let targetBanProfile = null; // When mod chooses to punish someone
-let pendingSubmissionsCache = []; // Global pending submissions for queue position & mod review
+let currentProfileSort = "rank";
+let targetBanProfile = null;
+let pendingSubmissionsCache = [];
 let currentRejectSubmissionId = null;
 
-// Helper: Username format validation
+// Helpers
 function isValidUsername(username) {
   return /^[a-zA-Z0-9_]{3,20}$/.test(username);
 }
 
-// Helper: Supabase Auth internal email
 function usernameToEmail(username) {
   return `${username.trim().toLowerCase()}@anl-player.com`;
 }
 
-// Helper: Ensure URL is safe
 function safeUrl(rawUrl) {
   if (!rawUrl) return '';
   try {
@@ -32,21 +30,18 @@ function safeUrl(rawUrl) {
   return '';
 }
 
-// Helper: Extract YouTube embed URL
 function getYouTubeEmbedUrl(url) {
   if (!url) return '';
   const match = String(url).match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
   return match ? `https://www.youtube.com/embed/${match[1]}` : '';
 }
 
-// Helper: YouTube video thumbnail (320x180)
 function getYouTubeThumbnailUrl(url) {
   if (!url) return '';
   const match = String(url).match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
   return match ? `https://img.youtube.com/vi/${match[1]}/mqdefault.jpg` : '';
 }
 
-// Helper: Escape HTML
 function escapeHtml(val) {
   if (val === null || val === undefined) return '';
   return String(val).replace(/[&<>'"]/g, tag => ({
@@ -54,14 +49,12 @@ function escapeHtml(val) {
   }[tag] || tag));
 }
 
-// Helper: Date format
 function formatDate(dStr) {
   if (!dStr) return '';
   const d = new Date(dStr);
   return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-// Points Calculation
 function calculatePoints(rank) {
   if (!rank || rank > SETTINGS.mainListCutoff || rank < 1) return 0;
   const pts = 350 * Math.pow(55 / 350, (rank - 1) / 24);
@@ -82,11 +75,10 @@ function calculatePointsForRecord(rank, percentage, minReq = 100) {
     const multiplier = 0.10 + (0.40 * progressRatio);
     return parseFloat((basePts * multiplier).toFixed(2));
   }
-
   return 0;
 }
 
-// Startup
+// App Startup
 document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("discordLink").href = safeUrl(SETTINGS.discordUrl) || '#';
   document.getElementById("ytLink").href = safeUrl(SETTINGS.youtubeUrl) || '#';
@@ -138,14 +130,21 @@ function setupDelegatedEvents() {
       return;
     }
 
-    // 5. Queue Approve Button
+    // 5. Queue Direct Approve
     const approveBtn = e.target.closest(".approve-sub-btn");
     if (approveBtn && approveBtn.dataset.subId) {
       await approveSubmission(approveBtn.dataset.subId);
       return;
     }
 
-    // 6. Queue Deny Button
+    // 6. Queue Manual Accept (Edit before placing)
+    const manualBtn = e.target.closest(".manual-accept-sub-btn");
+    if (manualBtn && manualBtn.dataset.subId) {
+      openManualAcceptModal(manualBtn.dataset.subId);
+      return;
+    }
+
+    // 7. Queue Deny
     const denyBtn = e.target.closest(".deny-sub-btn");
     if (denyBtn && denyBtn.dataset.subId) {
       currentRejectSubmissionId = denyBtn.dataset.subId;
@@ -157,7 +156,6 @@ function setupDelegatedEvents() {
   });
 }
 
-// Open profile view
 function openPlayerProfile(playerName) {
   activeProfilePlayer = playerName.trim();
 
@@ -174,14 +172,12 @@ function openPlayerProfile(playerName) {
   renderProfile();
 }
 
-// Check session & moderator/ban status
 async function checkAuthSession() {
   const { data: { session } } = await supabaseClient.auth.getSession();
   if (session && session.user) {
     currentUser = session.user;
 
-    // Fetch user profile from public.profiles
-    const { data: prof, error } = await supabaseClient
+    const { data: prof } = await supabaseClient
       .from('profiles')
       .select('*')
       .eq('id', currentUser.id)
@@ -191,7 +187,6 @@ async function checkAuthSession() {
       currentProfile = prof;
       isModerator = prof.is_mod === true;
 
-      // Handle banned user
       if (prof.is_banned) {
         const reason = prof.ban_reason || "Violation of Ascent Nation List rules.";
         await supabaseClient.auth.signOut();
@@ -219,9 +214,8 @@ function setLoggedInState() {
                   || currentUser.email?.split('@')[0] 
                   || "Player";
 
-  // Toggle Mod-only tabs
   document.querySelectorAll(".mod-only").forEach(el => {
-    el.style.display = isModerator ? "inline-flex" : "none";
+    el.style.display = isModerator ? "inline-block" : "none";
   });
 
   const authBtn = document.getElementById("authBtn");
@@ -254,7 +248,6 @@ function setLoggedOutState() {
   checkSubmissionRestrictions();
 }
 
-// Submission eligibility / timeout banner check
 function checkSubmissionRestrictions() {
   const noticeBox = document.getElementById("submitNoticeBox");
   const submitBtn = document.getElementById("submitRecordBtn");
@@ -269,11 +262,9 @@ function checkSubmissionRestrictions() {
     return;
   }
 
-  // Check timeout
   if (currentProfile && currentProfile.submission_banned_until) {
     const bannedUntil = new Date(currentProfile.submission_banned_until);
-    const now = new Date();
-    if (bannedUntil > now) {
+    if (bannedUntil > new Date()) {
       noticeBox.style.display = "block";
       noticeBox.style.background = "rgba(245, 158, 11, 0.15)";
       noticeBox.style.border = "1px solid var(--accent-gold)";
@@ -284,14 +275,13 @@ function checkSubmissionRestrictions() {
     }
   }
 
-  // Check 3 pending limit
   const myPending = pendingSubmissionsCache.filter(s => s.user_id === currentUser.id && s.status === 'pending');
   if (myPending.length >= 3) {
     noticeBox.style.display = "block";
     noticeBox.style.background = "rgba(245, 158, 11, 0.15)";
     noticeBox.style.border = "1px solid var(--accent-gold)";
     noticeBox.style.color = "var(--accent-gold)";
-    noticeBox.innerHTML = `⚠️ <strong>Submission limit reached:</strong> You have 3 submissions currently on hold. Please wait until they are approved or rejected before submitting more.`;
+    noticeBox.innerHTML = `⚠️ <strong>Submission limit reached:</strong> You have 3 submissions currently on hold. Please wait for them to be reviewed.`;
     if (submitBtn) submitBtn.disabled = true;
     return;
   }
@@ -300,7 +290,6 @@ function checkSubmissionRestrictions() {
   if (submitBtn) submitBtn.disabled = false;
 }
 
-// Fetch Levels and Victors
 async function fetchLevelsFromDB() {
   const { data, error } = await supabaseClient
     .from('levels')
@@ -325,12 +314,11 @@ async function fetchLevelsFromDB() {
   populateDropdowns();
 }
 
-// Fetch Pending Submissions for Queue and Queue Positions
 async function refreshQueueState() {
   const { data, error } = await supabaseClient
     .from('submissions')
     .select('*')
-    .order('created_at', { ascending: true }); // ASC = oldest first (recommended review order)
+    .order('created_at', { ascending: true });
 
   if (error) {
     console.error("Error fetching submissions queue:", error);
@@ -341,7 +329,9 @@ async function refreshQueueState() {
 
   const pendingCount = pendingSubmissionsCache.filter(s => s.status === 'pending').length;
   const badge = document.getElementById("queueBadge");
+  const badgeMenu = document.getElementById("queueBadgeMenu");
   if (badge) badge.textContent = pendingCount;
+  if (badgeMenu) badgeMenu.textContent = pendingCount;
 
   if (isModerator && currentTab === "queue") {
     renderQueue();
@@ -354,7 +344,6 @@ async function refreshQueueState() {
   checkSubmissionRestrictions();
 }
 
-// Populate Level Dropdowns
 function populateDropdowns() {
   const optionsHtml = currentLevels.map(lvl => `
     <option value="${escapeHtml(lvl.id)}">#${lvl.rank} - ${escapeHtml(lvl.name)}</option>
@@ -367,13 +356,12 @@ function populateDropdowns() {
   if (adminSelect) adminSelect.innerHTML = optionsHtml;
 }
 
-// Calculate comprehensive player stats
 function calculateAllPlayerStats() {
   const playerStats = {};
 
   currentLevels.forEach(level => {
     const basePts = calculatePoints(level.rank);
-    const minReq = level.min_pct ? parseInt(level.min_pct, 10) : 100;
+    const minReq = level.min_percentage ? parseInt(level.min_percentage, 10) : 100;
 
     // Credit Verifier
     if (level.verifier) {
@@ -454,7 +442,6 @@ function calculateAllPlayerStats() {
   return sorted;
 }
 
-// Render Leaderboard
 function renderLeaderboard() {
   const sorted = calculateAllPlayerStats();
   const tbody = document.getElementById("leaderboardBody");
@@ -472,7 +459,6 @@ function renderLeaderboard() {
   `).join("");
 }
 
-// Render Profile
 async function renderProfile() {
   const allStats = calculateAllPlayerStats();
 
@@ -494,15 +480,9 @@ async function renderProfile() {
     }
   }
 
-  // Return to own profile toolbar
   const toolbar = document.getElementById("profileToolbar");
-  if (currentUser && !isViewingSelf) {
-    toolbar.style.display = "block";
-  } else {
-    toolbar.style.display = "none";
-  }
+  toolbar.style.display = (currentUser && !isViewingSelf) ? "block" : "none";
 
-  // Fetch target player's profile data to check ban/moderator options
   targetBanProfile = null;
   const { data: targetProfileData } = await supabaseClient
     .from('profiles')
@@ -510,11 +490,8 @@ async function renderProfile() {
     .ilike('username', targetPlayerName)
     .maybeSingle();
 
-  if (targetProfileData) {
-    targetBanProfile = targetProfileData;
-  }
+  if (targetProfileData) targetBanProfile = targetProfileData;
 
-  // Moderator sanction actions on profile
   const modActionsCard = document.getElementById("profileModActionsCard");
   const banBadge = document.getElementById("profileBanBadge");
   const unbanBtn = document.getElementById("unbanPlayerBtn");
@@ -534,7 +511,6 @@ async function renderProfile() {
     banBadge.style.display = targetBanProfile?.is_banned ? "inline-block" : "none";
   }
 
-  // Bio card
   const bioEditCard = document.getElementById("bioEditCard");
   if (currentUser && isViewingSelf) {
     bioEditCard.style.display = "block";
@@ -543,7 +519,6 @@ async function renderProfile() {
     bioEditCard.style.display = "none";
   }
 
-  // Bio Display
   const bioDisplay = document.getElementById("profileBioDisplay");
   if (isViewingSelf && currentProfile) {
     bioDisplay.textContent = currentProfile.bio || "No personal bio written yet.";
@@ -567,15 +542,10 @@ async function renderProfile() {
     document.getElementById("profileVerifications").textContent = userStats.verifications;
 
     const records = [...userStats.beatenLevels];
-    if (currentProfileSort === "rank") {
-      records.sort((a, b) => a.rank - b.rank);
-    } else if (currentProfileSort === "points") {
-      records.sort((a, b) => b.points - a.points);
-    } else if (currentProfileSort === "pct") {
-      records.sort((a, b) => b.percentage - a.percentage);
-    } else if (currentProfileSort === "name") {
-      records.sort((a, b) => a.name.localeCompare(b.name));
-    }
+    if (currentProfileSort === "rank") records.sort((a, b) => a.rank - b.rank);
+    else if (currentProfileSort === "points") records.sort((a, b) => b.points - a.points);
+    else if (currentProfileSort === "pct") records.sort((a, b) => b.percentage - a.percentage);
+    else if (currentProfileSort === "name") records.sort((a, b) => a.name.localeCompare(b.name));
 
     const beatenContainer = document.getElementById("profileCompletedList");
     if (records.length > 0) {
@@ -586,9 +556,9 @@ async function renderProfile() {
             <div>
               <strong>#${lvl.rank} - ${escapeHtml(lvl.name)}</strong>
               <span class="pct-badge ${lvl.isCompletion ? 'pct-100' : 'pct-partial'}">${lvl.percentage}%</span>
-              <span class="text-muted" style="font-size: 0.8rem; margin-left: 8px;">(${escapeHtml(lvl.device || 'PC')})</span>
+              <span class="text-muted" style="font-size: 0.8rem; margin-left: 6px;">(${escapeHtml(lvl.device || 'PC')})</span>
             </div>
-            <div style="display: flex; gap: 12px; align-items: center;">
+            <div style="display: flex; gap: 10px; align-items: center;">
               <span style="color: var(--accent); font-weight: 600;">+${lvl.points.toFixed(2)} pts</span>
               ${validatedUrl ? `<a href="${validatedUrl}" target="_blank" rel="noopener noreferrer">Proof</a>` : ''}
             </div>
@@ -605,7 +575,7 @@ async function renderProfile() {
         <div class="profile-level-row">
           <div>
             <strong>#${lvl.rank} - ${escapeHtml(lvl.name)}</strong>
-            <span class="text-muted" style="font-size: 0.8rem; margin-left: 8px;">by ${escapeHtml(lvl.creator)}</span>
+            <span class="text-muted" style="font-size: 0.8rem; margin-left: 6px;">by ${escapeHtml(lvl.creator)}</span>
           </div>
           <span style="color: var(--accent-gold); font-weight: 600;">+${lvl.points.toFixed(2)} pts</span>
         </div>
@@ -620,20 +590,13 @@ async function renderProfile() {
     document.getElementById("profileCompletions").textContent = "0";
     document.getElementById("profileProgressions").textContent = "0";
     document.getElementById("profileVerifications").textContent = "0";
-
-    document.getElementById("profileCompletedList").innerHTML = `
-      <p class="text-muted">No list records found for "<strong>${escapeHtml(targetPlayerName)}</strong>".</p>
-    `;
-    document.getElementById("profileVerifiedList").innerHTML = `
-      <p class="text-muted">No verified levels.</p>
-    `;
+    document.getElementById("profileCompletedList").innerHTML = `<p class="text-muted">No list records found for "${escapeHtml(targetPlayerName)}".</p>`;
+    document.getElementById("profileVerifiedList").innerHTML = `<p class="text-muted">No verified levels.</p>`;
   }
 
-  // Render Private Submissions & Queue Positions
   renderProfileSubmissions(isViewingSelf);
 }
 
-// Render private submissions for owner profile
 function renderProfileSubmissions(isViewingSelf) {
   const container = document.getElementById("myPrivateSubmissionsCard");
   const list = document.getElementById("profileSubmissionsList");
@@ -644,21 +607,23 @@ function renderProfileSubmissions(isViewingSelf) {
   }
 
   container.style.display = "block";
-
-  // Filter all submissions by this user
   const mySubmissions = pendingSubmissionsCache.filter(s => s.user_id === currentUser.id);
 
   if (mySubmissions.length === 0) {
-    list.innerHTML = `<p class="text-muted">You have no active or recent submissions.</p>`;
+    list.innerHTML = `<p class="text-muted">You have no active submissions.</p>`;
     return;
   }
 
-  // Pending submissions globally sorted oldest-to-newest for queue position
   const globalPending = pendingSubmissionsCache.filter(s => s.status === 'pending');
 
   list.innerHTML = mySubmissions.map(sub => {
-    const level = currentLevels.find(l => l.id == sub.level_id);
-    const levelTitle = level ? `#${level.rank} - ${level.name}` : `Level ID: ${sub.level_id}`;
+    let levelTitle = "";
+    if (sub.type === "verification") {
+      levelTitle = `[Verification] ${sub.level_name || 'New Level'} (by ${sub.creator || 'Unknown'})`;
+    } else {
+      const level = currentLevels.find(l => l.id == sub.level_id);
+      levelTitle = level ? `#${level.rank} - ${level.name}` : `Level ID: ${sub.level_id}`;
+    }
     
     let statusBadge = "";
     let queuePosText = "";
@@ -678,7 +643,7 @@ function renderProfileSubmissions(isViewingSelf) {
 
     return `
       <div class="profile-level-row" style="flex-direction: column; align-items: flex-start; gap: 6px;">
-        <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+        <div style="display: flex; justify-content: space-between; width: 100%; align-items: center; flex-wrap: wrap;">
           <div>
             <strong>${escapeHtml(levelTitle)}</strong>
             <span class="pct-badge ${sub.percentage === 100 ? 'pct-100' : 'pct-partial'}">${sub.percentage}%</span>
@@ -686,7 +651,7 @@ function renderProfileSubmissions(isViewingSelf) {
           </div>
           <div>${statusBadge}</div>
         </div>
-        <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+        <div style="display: flex; justify-content: space-between; width: 100%; align-items: center; flex-wrap: wrap; gap: 8px;">
           <div>${queuePosText}</div>
           <div><a href="${safeUrl(sub.proof_url)}" target="_blank" rel="noopener noreferrer">View Proof</a></div>
         </div>
@@ -724,8 +689,16 @@ function renderQueue() {
   }
 
   container.innerHTML = pending.map((sub, index) => {
-    const level = currentLevels.find(l => l.id == sub.level_id);
-    const levelTitle = level ? `#${level.rank} - ${level.name} (Min Req: ${level.min_pct || 100}%)` : `Level ID: ${sub.level_id}`;
+    let levelTitle = "";
+    let isNewVerification = sub.type === "verification";
+
+    if (isNewVerification) {
+      levelTitle = `⭐ [New Level] ${sub.level_name || 'Untitled'} (by ${sub.creator || 'Unknown'})`;
+    } else {
+      const level = currentLevels.find(l => l.id == sub.level_id);
+      levelTitle = level ? `#${level.rank} - ${level.name} (Min Req: ${level.min_percentage || 100}%)` : `Level ID: ${sub.level_id}`;
+    }
+
     const proofLink = safeUrl(sub.proof_url);
     const rawLink = safeUrl(sub.raw_footage_url);
 
@@ -734,7 +707,7 @@ function renderQueue() {
         <div class="queue-card-header">
           <div>
             <span class="queue-pos-indicator">#${index + 1} in Queue</span>
-            <strong style="margin-left: 8px; font-size: 1.05rem;">${escapeHtml(levelTitle)}</strong>
+            <strong style="margin-left: 8px; font-size: 1rem;">${escapeHtml(levelTitle)}</strong>
             <span class="pct-badge ${sub.percentage === 100 ? 'pct-100' : 'pct-partial'}">${sub.percentage}%</span>
           </div>
           <span class="text-muted" style="font-size: 0.8rem;">Submitted: ${formatDate(sub.created_at)}</span>
@@ -750,7 +723,7 @@ function renderQueue() {
             <strong style="text-transform: capitalize; color: var(--accent);">${escapeHtml(sub.type)}</strong>
           </div>
           <div>
-            <span class="text-muted">Device / Refresh:</span>
+            <span class="text-muted">Device:</span>
             <strong>${escapeHtml(sub.device || 'PC')}</strong>
           </div>
           <div>
@@ -759,55 +732,59 @@ function renderQueue() {
           </div>
           ${rawLink ? `
             <div>
-              <span class="text-muted">Raw Footage:</span>
-              <a href="${rawLink}" target="_blank" rel="noopener noreferrer">Raw Stream / Drive ↗</a>
+              <span class="text-muted">Raw Stream / Drive:</span>
+              <a href="${rawLink}" target="_blank" rel="noopener noreferrer">Inspect Raw ↗</a>
+            </div>
+          ` : ''}
+          ${isNewVerification ? `
+            <div>
+              <span class="text-muted">Length:</span>
+              <strong>${escapeHtml(sub.level_length || 'N/A')}</strong>
+            </div>
+            <div>
+              <span class="text-muted">Req %:</span>
+              <strong>${sub.min_percentage || 100}%</strong>
             </div>
           ` : ''}
         </div>
 
+        ${sub.level_description ? `
+          <div style="background: var(--bg-secondary); padding: 6px 10px; border-radius: 6px; font-size: 0.8rem;">
+            <span class="text-muted">Level Info:</span> "${escapeHtml(sub.level_description)}"
+          </div>
+        ` : ''}
+
         ${sub.notes ? `
-          <div style="background: var(--bg-secondary); padding: 8px 12px; border-radius: 6px; font-size: 0.85rem;">
+          <div style="background: var(--bg-secondary); padding: 6px 10px; border-radius: 6px; font-size: 0.8rem;">
             <span class="text-muted">Submitter Notes:</span> "${escapeHtml(sub.notes)}"
           </div>
         ` : ''}
 
         <div class="queue-actions">
           <button type="button" class="btn-deny deny-sub-btn" data-sub-id="${sub.id}">✕ Deny with Reason</button>
-          <button type="button" class="btn-approve approve-sub-btn" data-sub-id="${sub.id}">✓ Accept & Add to List</button>
+          <button type="button" class="btn-manual manual-accept-sub-btn" data-sub-id="${sub.id}">✍️ Manual Accept</button>
+          ${!isNewVerification ? `
+            <button type="button" class="btn-approve approve-sub-btn" data-sub-id="${sub.id}">✓ Quick Accept</button>
+          ` : ''}
         </div>
       </div>
     `;
   }).join("");
 }
 
-// Approve submission
+// 1. Direct Quick Accept (Completions)
 async function approveSubmission(subId) {
   if (!isModerator) return;
-
   const sub = pendingSubmissionsCache.find(s => s.id == subId);
   if (!sub) return;
 
   const level = currentLevels.find(l => l.id == sub.level_id);
   const levelTitle = level ? `#${level.rank} - ${level.name}` : `Level #${sub.level_id}`;
 
-  if (!confirm(`Approve ${sub.type} submission for ${sub.player_name} on ${levelTitle}?`)) return;
+  if (!confirm(`Quick-approve record for ${sub.player_name} on ${levelTitle}?`)) return;
 
   const modName = currentProfile?.username || "Moderator";
 
-  // 1. If it's a verification, update the level's verifier
-  if (sub.type === 'verification') {
-    const { error: lvlErr } = await supabaseClient
-      .from('levels')
-      .update({ verifier: sub.player_name })
-      .eq('id', sub.level_id);
-
-    if (lvlErr) {
-      alert("Error updating level verifier: " + lvlErr.message);
-      return;
-    }
-  }
-
-  // 2. Insert into victors table
   const { error: vicErr } = await supabaseClient
     .from('victors')
     .insert([{
@@ -824,7 +801,6 @@ async function approveSubmission(subId) {
     return;
   }
 
-  // 3. Update submission status to accepted
   await supabaseClient
     .from('submissions')
     .update({
@@ -834,11 +810,10 @@ async function approveSubmission(subId) {
     })
     .eq('id', sub.id);
 
-  // 4. Log action
   await logModeratorAction(
     "APPROVE_SUBMISSION",
     sub.player_name,
-    `Accepted ${sub.type} (${sub.percentage}%) on ${levelTitle}`
+    `Accepted completion (${sub.percentage}%) on ${levelTitle}`
   );
 
   alert(`Submission accepted for ${sub.player_name}!`);
@@ -846,16 +821,44 @@ async function approveSubmission(subId) {
   await refreshQueueState();
 }
 
+// 2. Open Manual Accept Modal (Pre-populate with submission details)
+function openManualAcceptModal(subId) {
+  const sub = pendingSubmissionsCache.find(s => s.id == subId);
+  if (!sub) return;
+
+  document.getElementById("manSubId").value = sub.id;
+  document.getElementById("manVerifier").value = sub.player_name;
+  document.getElementById("manVideo").value = sub.proof_url;
+  document.getElementById("manDevice").value = sub.device || "PC";
+
+  if (sub.type === "verification") {
+    document.getElementById("manName").value = sub.level_name || "";
+    document.getElementById("manCreator").value = sub.creator || "";
+    document.getElementById("manLength").value = sub.level_length || "1:00";
+    document.getElementById("manMinPct").value = sub.min_percentage || 100;
+    document.getElementById("manDesc").value = sub.level_description || "";
+    document.getElementById("manRank").value = "1";
+  } else {
+    const level = currentLevels.find(l => l.id == sub.level_id);
+    document.getElementById("manName").value = level ? level.name : "";
+    document.getElementById("manCreator").value = level ? level.creator : "";
+    document.getElementById("manLength").value = level ? level.length : "1:00";
+    document.getElementById("manMinPct").value = level ? level.min_percentage : 100;
+    document.getElementById("manDesc").value = level ? level.description : "";
+    document.getElementById("manRank").value = level ? level.rank : 1;
+  }
+
+  document.getElementById("manualAcceptModal").classList.add("active");
+}
+
 // Deny submission
 async function denySubmission(subId, reason) {
   if (!isModerator) return;
-
   const sub = pendingSubmissionsCache.find(s => s.id == subId);
   if (!sub) return;
 
   const modName = currentProfile?.username || "Moderator";
-  const level = currentLevels.find(l => l.id == sub.level_id);
-  const levelTitle = level ? level.name : `Level #${sub.level_id}`;
+  const levelTitle = sub.level_name || (currentLevels.find(l => l.id == sub.level_id)?.name || `Level #${sub.level_id}`);
 
   const { error } = await supabaseClient
     .from('submissions')
@@ -872,7 +875,6 @@ async function denySubmission(subId, reason) {
     return;
   }
 
-  // Log action
   await logModeratorAction(
     "DENY_SUBMISSION",
     sub.player_name,
@@ -883,7 +885,6 @@ async function denySubmission(subId, reason) {
   await refreshQueueState();
 }
 
-// Log moderator audit trail
 async function logModeratorAction(action, targetName, details) {
   try {
     const modUsername = currentProfile?.username || "Moderator";
@@ -899,7 +900,6 @@ async function logModeratorAction(action, targetName, details) {
   }
 }
 
-// Fetch & Render Audit Logs
 async function fetchAndRenderModLogs() {
   const tbody = document.getElementById("logsTableBody");
   tbody.innerHTML = `<tr><td colspan="5" class="loading">Loading logs...</td></tr>`;
@@ -916,7 +916,7 @@ async function fetchAndRenderModLogs() {
   }
 
   if (!data || data.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" style="padding:14px;color:var(--text-muted);">No moderator actions recorded yet.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" style="padding:14px;color:var(--text-muted);">No logs recorded.</td></tr>`;
     return;
   }
 
@@ -931,7 +931,6 @@ async function fetchAndRenderModLogs() {
   `).join("");
 }
 
-// Render Level List
 function renderList() {
   const listContainer = document.getElementById("levelList");
   listContainer.innerHTML = "";
@@ -969,7 +968,7 @@ function renderList() {
 
     const thumbUrl = getYouTubeThumbnailUrl(level.video_url);
     const maxPts = calculatePoints(level.rank);
-    const minReq = level.min_pct ? parseInt(level.min_pct, 10) : 100;
+    const minReq = level.min_percentage ? parseInt(level.min_percentage, 10) : 100;
 
     let pointsText = "";
     if (maxPts > 0) {
@@ -1013,7 +1012,6 @@ function renderList() {
   renderLevelDetails(selected);
 }
 
-// Render Level Details
 function renderLevelDetails(level) {
   const container = document.getElementById("levelDetails");
   if (!level) {
@@ -1022,7 +1020,7 @@ function renderLevelDetails(level) {
   }
 
   const points = calculatePoints(level.rank);
-  const minReq = level.min_pct ? parseInt(level.min_pct, 10) : 100;
+  const minReq = level.min_percentage ? parseInt(level.min_percentage, 10) : 100;
   const lengthStr = level.length || "N/A";
   const verifierBonus = (points * SETTINGS.verifierBonusPct).toFixed(2);
   const totalVerifierPts = (points * (1 + SETTINGS.verifierBonusPct)).toFixed(2);
@@ -1065,7 +1063,7 @@ function renderLevelDetails(level) {
       </div>
     </div>
 
-    <div class="stat-card" style="margin-bottom: 24px;">
+    <div class="stat-card" style="margin-bottom: 20px;">
       <span>Description</span>
       <strong style="font-size:0.85rem; font-weight: normal;">${escapeHtml(level.description || "No description provided.")}</strong>
     </div>
@@ -1081,11 +1079,11 @@ function renderLevelDetails(level) {
               <div>
                 <a href="#" class="player-link" data-player="${escapeHtml(v.player_name)}"><strong>${escapeHtml(v.player_name)}</strong></a>
                 <span class="pct-badge ${pct === 100 ? 'pct-100' : 'pct-partial'}">${pct}%</span>
-                <span class="text-muted" style="font-size:0.85rem; margin-left:6px;">(${escapeHtml(v.device || 'PC')})</span>
+                <span class="text-muted" style="font-size:0.8rem; margin-left:6px;">(${escapeHtml(v.device || 'PC')})</span>
               </div>
               <div>
                 ${validProof ? `<a href="${validProof}" target="_blank" rel="noopener noreferrer">Proof</a>` : ''}
-                ${isModerator ? `<button type="button" class="delete-victor-btn" data-victor-id="${escapeHtml(v.id)}">✕ Delete</button>` : ''}
+                ${isModerator ? `<button type="button" class="delete-victor-btn" data-victor-id="${escapeHtml(v.id)}">✕</button>` : ''}
               </div>
             </div>
           `;
@@ -1095,8 +1093,24 @@ function renderLevelDetails(level) {
   `;
 }
 
-// Setup Forms (Submission, Bio, Direct Placement)
 function setupForms() {
+  // Toggle between Completion and Verification fields
+  const subTypeSelect = document.getElementById("subType");
+  const compGroup = document.getElementById("fieldGroupCompletion");
+  const veriGroup = document.getElementById("fieldGroupVerification");
+
+  if (subTypeSelect) {
+    subTypeSelect.addEventListener("change", () => {
+      const isVeri = subTypeSelect.value === "verification";
+      compGroup.style.display = isVeri ? "none" : "block";
+      veriGroup.style.display = isVeri ? "block" : "none";
+
+      document.getElementById("subNewLevelName").required = isVeri;
+      document.getElementById("subNewLevelCreator").required = isVeri;
+      document.getElementById("subNewLevelLength").required = isVeri;
+    });
+  }
+
   // 1. Submit Record to Queue Form
   const recordSubForm = document.getElementById("recordSubmissionForm");
   if (recordSubForm) {
@@ -1107,14 +1121,12 @@ function setupForms() {
         return;
       }
 
-      // Check for limit of 3
       const myPending = pendingSubmissionsCache.filter(s => s.user_id === currentUser.id && s.status === 'pending');
       if (myPending.length >= 3) {
-        alert("Submission limit reached: You already have 3 pending submissions on hold. Please wait for them to be reviewed.");
+        alert("Submission limit reached: You already have 3 pending submissions on hold.");
         return;
       }
 
-      // Check timeout
       if (currentProfile && currentProfile.submission_banned_until) {
         const bannedUntil = new Date(currentProfile.submission_banned_until);
         if (bannedUntil > new Date()) {
@@ -1124,8 +1136,6 @@ function setupForms() {
       }
 
       const type = document.getElementById("subType").value;
-      const levelId = parseInt(document.getElementById("subLevelSelect").value, 10);
-      const percentage = parseInt(document.getElementById("subPercentage").value, 10);
       const rawProof = document.getElementById("subProofUrl").value.trim();
       const rawFootage = document.getElementById("subRawUrl").value.trim();
       const device = document.getElementById("subDevice").value.trim();
@@ -1141,64 +1151,172 @@ function setupForms() {
                       || currentUser.user_metadata?.player_name 
                       || currentUser.email.split('@')[0];
 
-      const { error } = await supabaseClient
-        .from('submissions')
-        .insert([{
-          user_id: currentUser.id,
-          player_name: playerName,
-          type: type,
-          level_id: levelId,
-          percentage: percentage,
-          proof_url: validProof,
-          raw_footage_url: safeUrl(rawFootage) || '',
-          device: device,
-          notes: notes,
-          status: 'pending'
-        }]);
+      let payload = {
+        user_id: currentUser.id,
+        player_name: playerName,
+        type: type,
+        proof_url: validProof,
+        raw_footage_url: safeUrl(rawFootage) || '',
+        device: device,
+        notes: notes,
+        status: 'pending'
+      };
+
+      if (type === "verification") {
+        payload.level_id = null;
+        payload.percentage = 100;
+        payload.level_name = document.getElementById("subNewLevelName").value.trim();
+        payload.creator = document.getElementById("subNewLevelCreator").value.trim();
+        payload.level_length = document.getElementById("subNewLevelLength").value.trim();
+        payload.min_percentage = parseInt(document.getElementById("subNewLevelMinPct").value, 10) || 100;
+        payload.level_description = document.getElementById("subNewLevelDesc").value.trim();
+      } else {
+        payload.level_id = parseInt(document.getElementById("subLevelSelect").value, 10);
+        payload.percentage = parseInt(document.getElementById("subPercentage").value, 10);
+      }
+
+      const { error } = await supabaseClient.from('submissions').insert([payload]);
 
       if (error) {
         alert("Error submitting record: " + error.message);
       } else {
         alert("Record submitted successfully! It is now on hold in the queue.");
         recordSubForm.reset();
-        document.getElementById("subPercentage").value = "100";
+        document.getElementById("subType").value = "completion";
+        document.getElementById("subType").dispatchEvent(new Event('change'));
         await refreshQueueState();
       }
     });
   }
 
-  // 2. Update Bio Form
-  const bioForm = document.getElementById("updateBioForm");
-  if (bioForm) {
-    bioForm.addEventListener("submit", async (e) => {
+  // 2. Manual Accept Submission Form (Moderator fills in details)
+  const manualForm = document.getElementById("manualAcceptForm");
+  if (manualForm) {
+    manualForm.addEventListener("submit", async (e) => {
       e.preventDefault();
-      if (!currentUser) return;
+      if (!isModerator) return;
 
-      const newBio = document.getElementById("updateBioInput").value.trim();
-      
-      const { error } = await supabaseClient
-        .from('profiles')
-        .update({ bio: newBio })
-        .eq('id', currentUser.id);
+      const subId = document.getElementById("manSubId").value;
+      const rank = parseInt(document.getElementById("manRank").value, 10);
+      const name = document.getElementById("manName").value.trim();
+      const creator = document.getElementById("manCreator").value.trim();
+      const verifier = document.getElementById("manVerifier").value.trim();
+      const length = document.getElementById("manLength").value.trim();
+      const minPct = parseInt(document.getElementById("manMinPct").value, 10) || 100;
+      const video = safeUrl(document.getElementById("manVideo").value.trim());
+      const device = document.getElementById("manDevice").value.trim();
+      const desc = document.getElementById("manDesc").value.trim();
 
-      if (error) {
-        alert("Failed to save bio: " + error.message);
-      } else {
-        if (currentProfile) currentProfile.bio = newBio;
-        alert("Personal bio updated!");
-        renderProfile();
+      if (!video) {
+        alert("Please enter a valid HTTP/HTTPS video URL.");
+        return;
       }
+
+      const sub = pendingSubmissionsCache.find(s => s.id == subId);
+
+      // Check if rank is already occupied
+      const rankTaken = currentLevels.some(l => l.rank === rank && l.id !== sub?.level_id);
+      if (rankTaken) {
+        if (!confirm(`Warning: Rank #${rank} is currently occupied. Do you want to proceed inserting anyway?`)) {
+          return;
+        }
+      }
+
+      let targetLevelId = sub?.level_id;
+
+      // If it's a new verification or creating level anew
+      if (!targetLevelId || sub?.type === 'verification') {
+        const { data: newLevel, error: lvlErr } = await supabaseClient
+          .from('levels')
+          .insert([{
+            rank: rank,
+            name: name,
+            creator: creator,
+            verifier: verifier,
+            length: length,
+            min_percentage: minPct,
+            video_url: video,
+            description: desc
+          }])
+          .select()
+          .single();
+
+        if (lvlErr) {
+          alert("Error publishing level: " + lvlErr.message);
+          return;
+        }
+        targetLevelId = newLevel.id;
+      } else {
+        // Update existing level
+        await supabaseClient
+          .from('levels')
+          .update({
+            rank: rank,
+            name: name,
+            creator: creator,
+            verifier: verifier,
+            length: length,
+            min_percentage: minPct,
+            video_url: video,
+            description: desc
+          })
+          .eq('id', targetLevelId);
+      }
+
+      // Insert record into victors
+      await supabaseClient.from('victors').insert([{
+        level_id: targetLevelId,
+        player_name: verifier,
+        user_id: sub ? sub.user_id : null,
+        percentage: sub ? sub.percentage : 100,
+        proof_url: video,
+        device: device
+      }]);
+
+      // Mark submission accepted
+      if (sub) {
+        const modName = currentProfile?.username || "Moderator";
+        await supabaseClient
+          .from('submissions')
+          .update({
+            status: 'accepted',
+            reviewed_by: modName,
+            reviewed_at: new Date().toISOString()
+          })
+          .eq('id', sub.id);
+      }
+
+      await logModeratorAction(
+        "MANUAL_ACCEPT_LEVEL",
+        name,
+        `Moderator manual-accepted level at #${rank} verified by ${verifier}`
+      );
+
+      alert(`Level "${name}" successfully placed at #${rank}!`);
+      document.getElementById("manualAcceptModal").classList.remove("active");
+      await fetchLevelsFromDB();
+      await refreshQueueState();
     });
   }
 
-  // 3. Add Victor Directly (Admin panel)
+  // 3. Update Bio
+  document.getElementById("updateBioForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!currentUser) return;
+    const newBio = document.getElementById("updateBioInput").value.trim();
+    const { error } = await supabaseClient.from('profiles').update({ bio: newBio }).eq('id', currentUser.id);
+    if (error) alert("Failed to save bio: " + error.message);
+    else {
+      if (currentProfile) currentProfile.bio = newBio;
+      alert("Personal bio updated!");
+      renderProfile();
+    }
+  });
+
+  // 4. Direct Victor Add
   document.getElementById("addVictorForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
-    if (!isModerator) {
-      alert("Unauthorized.");
-      return;
-    }
-
+    if (!isModerator) return;
     const levelId = document.getElementById("victorLevelSelect").value;
     const playerName = document.getElementById("victorPlayerName").value.trim();
     const percentage = parseInt(document.getElementById("victorPercentage").value, 10) || 100;
@@ -1207,33 +1325,27 @@ function setupForms() {
     const device = document.getElementById("victorDevice").value.trim();
 
     if (!validatedProof) {
-      alert("Please provide a valid HTTP or HTTPS proof link.");
+      alert("Please enter a valid proof URL.");
       return;
     }
 
-    const { error } = await supabaseClient.from('victors').insert([
-      { level_id: levelId, player_name: playerName, percentage: percentage, proof_url: validatedProof, device: device }
-    ]);
+    const { error } = await supabaseClient.from('victors').insert([{
+      level_id: levelId, player_name: playerName, percentage: percentage, proof_url: validatedProof, device: device
+    }]);
 
-    if (error) {
-      alert("Database error: " + error.message);
-    } else {
-      await logModeratorAction("DIRECT_RECORD_ADD", playerName, `Directly added ${percentage}% on level ID ${levelId}`);
-      alert(`Record added for ${playerName} (${percentage}%)!`);
+    if (error) alert("Database error: " + error.message);
+    else {
+      await logModeratorAction("DIRECT_RECORD_ADD", playerName, `Added ${percentage}% on level ID ${levelId}`);
+      alert(`Record added for ${playerName}!`);
       document.getElementById("addVictorForm").reset();
-      document.getElementById("victorPercentage").value = "100";
       await fetchLevelsFromDB();
     }
   });
 
-  // 4. Add Level Form (Admin panel)
+  // 5. Direct Level Add
   document.getElementById("addLevelForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
-    if (!isModerator) {
-      alert("Unauthorized.");
-      return;
-    }
-
+    if (!isModerator) return;
     const rank = parseInt(document.getElementById("levelRank").value, 10);
     const name = document.getElementById("levelName").value.trim();
     const length = document.getElementById("levelLength").value.trim();
@@ -1244,84 +1356,55 @@ function setupForms() {
     const validatedVideo = safeUrl(rawVideo);
     const description = document.getElementById("levelDescription").value.trim();
 
-    if (!rank || rank < 1) {
-      alert("Rank must be an integer greater than 0.");
-      return;
-    }
-
     if (!validatedVideo) {
-      alert("Please enter a valid HTTP or HTTPS video URL.");
+      alert("Please enter a valid HTTP/HTTPS video URL.");
       return;
     }
 
-    const { error: insertError } = await supabaseClient.from('levels').insert([
-      { 
-        rank, 
-        name, 
-        length, 
-        min_pct: minPct, 
-        creator, 
-        verifier, 
-        video_url: validatedVideo, 
-        description 
-      }
-    ]);
+    const { error: insertError } = await supabaseClient.from('levels').insert([{ 
+      rank, name, length, min_percentage: minPct, creator, verifier, video_url: validatedVideo, description 
+    }]);
 
-    if (insertError) {
-      alert("Error adding level: " + insertError.message);
-      return;
+    if (insertError) alert("Error adding level: " + insertError.message);
+    else {
+      await logModeratorAction("ADD_LEVEL", name, `Placed new level at #${rank} created by ${creator}`);
+      alert(`Level ${name} successfully placed at #${rank}!`);
+      document.getElementById("addLevelForm").reset();
+      await fetchLevelsFromDB();
     }
-
-    await logModeratorAction("ADD_LEVEL", name, `Placed new level at #${rank} created by ${creator}`);
-    alert(`Level ${name} successfully placed at #${rank}!`);
-    document.getElementById("addLevelForm").reset();
-    document.getElementById("levelMinPct").value = "100";
-    await fetchLevelsFromDB();
   });
 }
 
-// Delete Victor
 async function deleteVictor(victorId) {
-  if (!isModerator) {
-    alert("Unauthorized.");
-    return;
-  }
-
+  if (!isModerator) return;
   if (!confirm("Are you sure you want to remove this record?")) return;
-
   const { error } = await supabaseClient.from('victors').delete().eq('id', victorId);
-  if (error) {
-    alert("Error deleting record: " + error.message);
-  } else {
-    await logModeratorAction("DELETE_RECORD", "Record ID " + victorId, "Manually removed victor record from list");
+  if (error) alert("Error deleting record: " + error.message);
+  else {
+    await logModeratorAction("DELETE_RECORD", "Record ID " + victorId, "Removed victor record from list");
     await fetchLevelsFromDB();
   }
 }
 
-// Setup Punish, Ban, and Rejection Modals
 function setupModModals() {
-  // 1. Rejection Modal
+  // Reject Modal
   const rejectModal = document.getElementById("rejectModal");
   document.getElementById("closeRejectModal").onclick = () => rejectModal.classList.remove("active");
-
   document.getElementById("rejectPreset").onchange = (e) => {
-    if (e.target.value) {
-      document.getElementById("rejectCustomReason").value = e.target.value;
-    }
+    if (e.target.value) document.getElementById("rejectCustomReason").value = e.target.value;
   };
-
   document.getElementById("confirmRejectBtn").onclick = async () => {
     const reason = document.getElementById("rejectCustomReason").value.trim();
-    if (!reason) {
-      alert("A rejection reason is required.");
-      return;
-    }
-    if (currentRejectSubmissionId) {
-      await denySubmission(currentRejectSubmissionId, reason);
-    }
+    if (!reason) { alert("Rejection reason required."); return; }
+    if (currentRejectSubmissionId) await denySubmission(currentRejectSubmissionId, reason);
   };
 
-  // 2. Punish Timeout Modal
+  // Close Manual Accept Modal
+  document.getElementById("closeManualAcceptModal").onclick = () => {
+    document.getElementById("manualAcceptModal").classList.remove("active");
+  };
+
+  // Punish Timeout Modal
   const punishModal = document.getElementById("punishModal");
   document.getElementById("openPunishModalBtn")?.addEventListener("click", () => {
     if (!targetBanProfile) return;
@@ -1332,43 +1415,29 @@ function setupModModals() {
 
   document.getElementById("confirmPunishBtn")?.addEventListener("click", async () => {
     if (!targetBanProfile || !isModerator) return;
-
     const duration = document.getElementById("punishDuration").value;
     const reason = document.getElementById("punishReason").value.trim();
-    if (!reason) {
-      alert("Please provide a reason for the timeout.");
-      return;
-    }
+    if (!reason) { alert("Please provide a reason."); return; }
 
     let timeoutDate = new Date();
-    if (duration === "forever") {
-      timeoutDate.setFullYear(timeoutDate.getFullYear() + 50); // 50 years
-    } else {
-      timeoutDate.setDate(timeoutDate.getDate() + parseInt(duration, 10));
-    }
+    if (duration === "forever") timeoutDate.setFullYear(timeoutDate.getFullYear() + 50);
+    else timeoutDate.setDate(timeoutDate.getDate() + parseInt(duration, 10));
 
     const { error } = await supabaseClient
       .from('profiles')
       .update({ submission_banned_until: timeoutDate.toISOString() })
       .eq('id', targetBanProfile.id);
 
-    if (error) {
-      alert("Error applying timeout: " + error.message);
-      return;
+    if (error) alert("Error applying timeout: " + error.message);
+    else {
+      await logModeratorAction("TIMEOUT_PLAYER", targetBanProfile.username, `Timeout (${duration}). Reason: "${reason}"`);
+      alert(`Timeout applied to ${targetBanProfile.username}!`);
+      punishModal.classList.remove("active");
+      renderProfile();
     }
-
-    await logModeratorAction(
-      "TIMEOUT_PLAYER",
-      targetBanProfile.username,
-      `Submission timeout applied (${duration} duration). Reason: "${reason}"`
-    );
-
-    alert(`Timeout applied to ${targetBanProfile.username}!`);
-    punishModal.classList.remove("active");
-    renderProfile();
   });
 
-  // 3. Ban & Purge Modal
+  // Ban Modal
   const banModal = document.getElementById("banModal");
   document.getElementById("openBanModalBtn")?.addEventListener("click", () => {
     if (!targetBanProfile) return;
@@ -1379,79 +1448,33 @@ function setupModModals() {
 
   document.getElementById("confirmBanBtn")?.addEventListener("click", async () => {
     if (!targetBanProfile || !isModerator) return;
-
     const reason = document.getElementById("banReasonInput").value.trim();
-    if (!reason) {
-      alert("An official reason for the ban is required.");
-      return;
-    }
-
-    if (!confirm(`Are you 100% sure you want to BAN ${targetBanProfile.username}? This purges all their records from the list!`)) {
-      return;
-    }
+    if (!reason) { alert("Reason required."); return; }
+    if (!confirm(`Are you 100% sure you want to BAN ${targetBanProfile.username}?`)) return;
 
     const modName = currentProfile?.username || "Moderator";
+    await supabaseClient.from('profiles').update({
+      is_banned: true, ban_reason: reason, banned_at: new Date().toISOString(), banned_by: modName
+    }).eq('id', targetBanProfile.id);
 
-    // 1. Mark banned in profile
-    const { error: banErr } = await supabaseClient
-      .from('profiles')
-      .update({
-        is_banned: true,
-        ban_reason: reason,
-        banned_at: new Date().toISOString(),
-        banned_by: modName
-      })
-      .eq('id', targetBanProfile.id);
-
-    if (banErr) {
-      alert("Error banning user: " + banErr.message);
-      return;
-    }
-
-    // 2. Purge records matching this player's name & user_id
     await supabaseClient.from('victors').delete().eq('player_name', targetBanProfile.username);
     await supabaseClient.from('victors').delete().eq('user_id', targetBanProfile.id);
+    await supabaseClient.from('levels').update({ verifier: 'Unknown' }).eq('verifier', targetBanProfile.username);
 
-    // 3. Remove verifications crediting this player
-    await supabaseClient
-      .from('levels')
-      .update({ verifier: 'Unknown' })
-      .eq('verifier', targetBanProfile.username);
-
-    // 4. Log Action
-    await logModeratorAction(
-      "BAN_PLAYER",
-      targetBanProfile.username,
-      `Banned player & purged all records/verifications. Reason: "${reason}"`
-    );
-
-    alert(`Player ${targetBanProfile.username} has been banned and records purged.`);
+    await logModeratorAction("BAN_PLAYER", targetBanProfile.username, `Banned & purged records. Reason: "${reason}"`);
+    alert(`Player ${targetBanProfile.username} banned.`);
     banModal.classList.remove("active");
     await fetchLevelsFromDB();
     renderProfile();
   });
 
-  // 4. Unban Button
+  // Unban
   document.getElementById("unbanPlayerBtn")?.addEventListener("click", async () => {
     if (!targetBanProfile || !isModerator) return;
-
     if (!confirm(`Remove ban sanctions from ${targetBanProfile.username}?`)) return;
-
-    const { error } = await supabaseClient
-      .from('profiles')
-      .update({
-        is_banned: false,
-        ban_reason: null,
-        banned_at: null,
-        banned_by: null,
-        submission_banned_until: null
-      })
-      .eq('id', targetBanProfile.id);
-
-    if (error) {
-      alert("Error unbanning user: " + error.message);
-      return;
-    }
+    await supabaseClient.from('profiles').update({
+      is_banned: false, ban_reason: null, banned_at: null, banned_by: null, submission_banned_until: null
+    }).eq('id', targetBanProfile.id);
 
     await logModeratorAction("UNBAN_PLAYER", targetBanProfile.username, "Lifted ban and sanctions.");
     alert(`${targetBanProfile.username} is unbanned.`);
@@ -1459,16 +1482,44 @@ function setupModModals() {
   });
 }
 
-// Navigation Tabs
 function setupNavigation() {
-  document.querySelectorAll(".nav-btn").forEach(btn => {
+  // Mobile Hamburger Toggle
+  const navToggle = document.getElementById("navToggle");
+  const navMenu = document.getElementById("navMenuWrapper");
+  if (navToggle) {
+    navToggle.addEventListener("click", () => {
+      navMenu.classList.toggle("active");
+    });
+  }
+
+  // Moderator Dropdown Trigger
+  const modDropdownBtn = document.getElementById("modDropdownBtn");
+  const modContainer = document.getElementById("modMenuDropdown");
+  if (modDropdownBtn) {
+    modDropdownBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      modContainer.classList.toggle("open");
+    });
+    document.addEventListener("click", () => {
+      modContainer.classList.remove("open");
+    });
+  }
+
+  // Handle Tab Switch
+  const allNavButtons = document.querySelectorAll(".nav-btn, .mod-dropdown-item");
+  allNavButtons.forEach(btn => {
     btn.addEventListener("click", () => {
-      document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-
       const tab = btn.dataset.tab;
-      currentTab = tab;
+      if (!tab) return;
 
+      document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
+      if (btn.classList.contains("nav-btn")) btn.classList.add("active");
+
+      // Close mobile menu
+      if (navMenu) navMenu.classList.remove("active");
+      if (modContainer) modContainer.classList.remove("open");
+
+      currentTab = tab;
       document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
 
       if (tab === "main" || tab === "extended") {
@@ -1497,20 +1548,15 @@ function setupNavigation() {
     });
   });
 
-  // Queue filter drop-downs
   document.getElementById("queueTypeFilter")?.addEventListener("change", renderQueue);
   document.getElementById("queueOrderFilter")?.addEventListener("change", renderQueue);
 }
 
-// Search
 function setupSearch() {
   const input = document.getElementById("searchInput");
-  input.addEventListener("input", () => {
-    renderList();
-  });
+  input?.addEventListener("input", () => renderList());
 }
 
-// Authentication
 function setupAuth() {
   const modal = document.getElementById("authModal");
   const closeBtn = document.getElementById("closeAuthModal");
@@ -1538,19 +1584,15 @@ function setupAuth() {
     errorEl.textContent = "";
   };
 
-  // Sign In
   loginForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const identifier = document.getElementById("loginUsername").value.trim();
     const password = document.getElementById("loginPassword").value;
-
     let emailToUse = identifier.includes("@") ? identifier.toLowerCase() : usernameToEmail(identifier);
 
     errorEl.textContent = "Signing in...";
-
-    const { data, error } = await supabaseClient.auth.signInWithPassword({
-      email: emailToUse,
-      password: password
+    const { error } = await supabaseClient.auth.signInWithPassword({
+      email: emailToUse, password: password
     });
 
     if (error) {
@@ -1564,14 +1606,13 @@ function setupAuth() {
     renderList();
   });
 
-  // Sign Up
   signupForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const username = document.getElementById("signupUsername").value.trim();
     const password = document.getElementById("signupPassword").value;
 
     if (!isValidUsername(username)) {
-      errorEl.textContent = "Usernames must be 3-20 characters long and contain only letters, numbers, or underscores.";
+      errorEl.textContent = "Username must be 3-20 characters long (letters, numbers, underscores).";
       return;
     }
 
@@ -1581,31 +1622,12 @@ function setupAuth() {
     const { data, error } = await supabaseClient.auth.signUp({
       email: pseudoEmail,
       password: password,
-      options: {
-        data: {
-          player_name: username
-        }
-      }
+      options: { data: { player_name: username } }
     });
 
     if (error) {
-      if (error.message.toLowerCase().includes("already registered") || error.message.toLowerCase().includes("unique")) {
-        errorEl.textContent = "This username is already taken. Please choose another.";
-      } else {
-        errorEl.textContent = error.message;
-      }
+      errorEl.textContent = error.message;
       return;
-    }
-
-    // Automatically sync initial profile entry in public.profiles table
-    if (data.user) {
-      await supabaseClient.from('profiles').upsert([{
-        id: data.user.id,
-        username: username,
-        bio: '',
-        is_mod: false,
-        is_banned: false
-      }]);
     }
 
     if (data.session) {
@@ -1615,7 +1637,7 @@ function setupAuth() {
       renderList();
       alert(`Welcome to ANL, ${username}!`);
     } else {
-      errorEl.textContent = "Account registered! You can now log in.";
+      errorEl.textContent = "Registered! You can now log in.";
       tabLoginBtn.click();
     }
   });
