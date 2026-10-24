@@ -503,17 +503,20 @@ function renderList() {
       pointsText = "0.00 pts (Extended)";
     }
 
-    // Thumbnail as a darkened background with a gradient overlay
     item.innerHTML = `
-      ${thumbUrl ? `<div class="item-bg-thumb" style="background-image: url('${thumbUrl}')"></div>` : ''}
-      <div class="item-overlay"></div>
-      <div class="item-content">
+      <div class="item-thumb-wrapper">
+        ${thumbUrl 
+          ? `<img src="${thumbUrl}" alt="${escapeHtml(level.name)}" class="item-thumb" loading="lazy">` 
+          : `<div class="item-thumb-placeholder">GD</div>`
+        }
+      </div>
+      <div class="item-info">
         <div class="item-title-row">
           <span class="item-rank">#${level.rank}</span>
           <span class="item-name">${escapeHtml(level.name)}</span>
         </div>
         <div class="item-meta-row">
-          <span class="item-author">by ${escapeHtml(level.creator)}</span>
+          <span class="item-author">${escapeHtml(level.creator)}</span>
           <span class="item-sep">|</span>
           <span class="item-verifier">${escapeHtml(level.verifier || 'Unknown')}</span>
         </div>
