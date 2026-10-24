@@ -1,48 +1,119 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>My First Website</title>
-  <style>
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background-color: #0f172a;
-      color: #f8fafc;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      margin: 0;
-      text-align: center;
-    }
-    .card {
-      background: #1e293b;
-      padding: 2.5rem;
-      border-radius: 12px;
-      box-shadow: 0 10px 25px rgba(0,0,0,0.3);
-      max-width: 400px;
-    }
-    h1 { margin-top: 0; color: #38bdf8; }
-    p { color: #94a3b8; line-height: 1.6; }
-    .btn {
-      display: inline-block;
-      margin-top: 1rem;
-      padding: 10px 20px;
-      background: #38bdf8;
-      color: #0f172a;
-      text-decoration: none;
-      font-weight: bold;
-      border-radius: 6px;
-    }
-  </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ascent Nation List (ANL)</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
 </head>
 <body>
-  <div class="card">
-    <h1>Hello, World! 👋</h1>
-    <p>This is my first website hosted for free on Vercel using GitHub.</p>
-    <a href="#" class="btn">Explore</a>
-  </div>
+
+  <!-- TOP HEADER / NAVBAR -->
+  <header class="navbar">
+    <div class="nav-brand">
+      <span class="logo-badge">ANL</span>
+      <h1>Ascent Nation List</h1>
+    </div>
+    <nav class="nav-links">
+      <button class="nav-btn active" data-tab="main">Main List (1-50)</button>
+      <button class="nav-btn" data-tab="extended">Extended (51+)</button>
+      <button class="nav-btn" data-tab="leaderboard">Leaderboard</button>
+      <button class="nav-btn" data-tab="rules">Rules & Info</button>
+    </nav>
+    <div class="nav-socials">
+      <a id="discordLink" target="_blank" class="social-btn discord">Discord</a>
+      <a id="ytLink" target="_blank" class="social-btn youtube">YouTube</a>
+    </div>
+  </header>
+
+  <!-- MAIN CONTAINER -->
+  <main class="container">
+    
+    <!-- VIEW: LEVEL LIST VIEW (MAIN OR EXTENDED) -->
+    <section id="listView" class="tab-content active">
+      <div class="list-layout">
+        
+        <!-- SIDEBAR: LEVEL CARDS -->
+        <aside class="sidebar">
+          <div class="search-box">
+            <input type="text" id="searchInput" placeholder="Search level or creator...">
+          </div>
+          <div id="levelList" class="level-items-container">
+            <!-- Dynamic Level Items injected here -->
+          </div>
+        </aside>
+
+        <!-- MAIN CONTENT: LEVEL DETAILS -->
+        <article class="level-detail-pane" id="levelDetails">
+          <!-- Injected via JavaScript -->
+        </article>
+
+      </div>
+    </section>
+
+    <!-- VIEW: LEADERBOARD -->
+    <section id="leaderboardView" class="tab-content">
+      <div class="leaderboard-wrapper">
+        <div class="panel-header">
+          <h2>Ascent Nation Leaderboard</h2>
+          <p>Compete, beat levels, and verify records to climb the ranks!</p>
+        </div>
+        <table class="leaderboard-table">
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>Player</th>
+              <th>Total Points</th>
+              <th>Completions</th>
+              <th>Verifications</th>
+            </tr>
+          </thead>
+          <tbody id="leaderboardBody">
+            <!-- Dynamically populated -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- VIEW: RULES AND GUIDELINES -->
+    <section id="rulesView" class="tab-content">
+      <div class="rules-card">
+        <h2>What is ANL?</h2>
+        <p><strong>ANL (Ascent Nation List)</strong> is a list of the hardest levels <em>made</em> and <em>verified</em> by members of the Ascent Nation (Ascent_GD's community), created by Ascent, M1xxronium, and fellow community members.</p>
+        
+        <hr>
+
+        <h2>Points System</h2>
+        <ul>
+          <li><strong>Main List (#1 - #50):</strong> Levels reward points on completion. #1 awards <strong>350.00 pts</strong>, tapering down to position #50.</li>
+          <li><strong>Extended List (#51+):</strong> Free to beat and records are tracked, but award <strong>0.00 pts</strong>.</li>
+          <li><strong>Verification Bonus:</strong> Verifiers receive the full base placement points <strong>PLUS a 20% bonus</strong>! (e.g., verifying a 350 pt #1 level gives 350 + 70 = <strong>420.00 pts</strong>).</li>
+        </ul>
+
+        <hr>
+
+        <h2>How to get a level placed?</h2>
+        <ol>
+          <li><strong>Length:</strong> Must be at least <strong>25 seconds</strong> long (few exceptions apply).</li>
+          <li><strong>No Auto Levels:</strong> No automated levels (Sorry, no Auto Retray).</li>
+          <li><strong>Strict Conduct:</strong> Offensive, racist, or sexist levels are strictly rejected and can lead to a community ban.</li>
+          <li><strong>Originality:</strong> Stolen levels or copies of existing rated levels will not be accepted.</li>
+          <li><strong>Proof of Legitimacy:</strong> Raw footage, clicks/taps, and legitimate completion proof are required to avoid unverified impossible difficulty.</li>
+          <li><strong>NONGs:</strong> Allowed, provided songs don't contain heavily sensitive content or lyrics.</li>
+        </ol>
+
+        <hr>
+
+        <h2>Ready to submit?</h2>
+        <p>Join the official Discord server to submit verifications, completions, or cheater reports to the moderators!</p>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
