@@ -177,80 +177,111 @@ body {
   flex: 1;
 }
 
-/* DEMONLIST CARD STYLING */
+/* DEMONLIST CARD BACKGROUND BANNER STYLING */
 .level-item {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 12px 16px;
+  padding: 14px 18px;
   cursor: pointer;
   border-bottom: 1px solid var(--border);
-  transition: 0.15s;
-}
-
-.level-item:hover { background-color: var(--bg-hover); }
-.level-item.active { 
-  background-color: var(--bg-card); 
-  border-left: 4px solid var(--accent); 
-}
-
-.item-thumb-wrapper {
-  width: 96px;
-  height: 56px;
-  border-radius: 6px;
+  min-height: 82px;
+  background-color: var(--bg-secondary);
   overflow: hidden;
-  background-color: #000;
-  border: 1px solid var(--border);
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  transition: border-color 0.2s, background-color 0.2s;
 }
 
-.item-thumb {
+/* Background image with subtle default opacity */
+.item-bg-thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  display: block;
+  background-size: cover;
+  background-position: center;
+  opacity: 0.32;
+  transition: transform 0.35s ease, opacity 0.35s ease;
+  z-index: 1;
 }
 
-.item-thumb-placeholder {
-  font-size: 0.8rem;
-  font-weight: 800;
-  color: var(--text-muted);
+/* Gradient overlay: dark on the left for text readability, clear on the right */
+.item-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg, 
+    rgba(14, 16, 23, 0.96) 0%, 
+    rgba(14, 16, 23, 0.85) 50%, 
+    rgba(14, 16, 23, 0.45) 100%
+  );
+  z-index: 2;
+  pointer-events: none;
+  transition: background 0.2s ease;
 }
 
-.item-info {
+/* Hover effects */
+.level-item:hover .item-bg-thumb {
+  transform: scale(1.06);
+  opacity: 0.50;
+}
+
+.level-item:hover .item-overlay {
+  background: linear-gradient(
+    90deg, 
+    rgba(14, 16, 23, 0.92) 0%, 
+    rgba(14, 16, 23, 0.75) 50%, 
+    rgba(14, 16, 23, 0.30) 100%
+  );
+}
+
+/* Active selected card */
+.level-item.active {
+  border-left: 4px solid var(--accent);
+  background-color: var(--bg-card);
+}
+
+.level-item.active .item-bg-thumb {
+  opacity: 0.55;
+  transform: scale(1.03);
+}
+
+/* Card Text Layer (sits on top of the image and overlay) */
+.item-content {
+  position: relative;
+  z-index: 3;
   display: flex;
   flex-direction: column;
   gap: 3px;
+  width: 100%;
   min-width: 0;
-  flex: 1;
 }
 
 .item-title-row {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 8px;
 }
 
 .item-rank {
   font-family: var(--font-heading);
-  font-size: 0.95rem;
+  font-size: 1.05rem;
   font-weight: 800;
   color: var(--accent);
 }
 
 .item-name {
   font-weight: 700;
-  font-size: 0.95rem;
+  font-size: 1rem;
+  color: var(--text-main);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.8);
 }
 
 .item-meta-row {
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -270,13 +301,14 @@ body {
 }
 
 .item-points-row {
-  margin-top: 2px;
+  margin-top: 3px;
 }
 
 .item-points-label {
-  font-size: 0.75rem;
+  font-size: 0.78rem;
   font-weight: 700;
   color: #7dd3fc;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.8);
 }
 
 /* LEVEL DETAIL PANE */
