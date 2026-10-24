@@ -4,18 +4,33 @@ let selectedLevelId = null;
 let currentUser = null;
 let currentModerator = null;
 
-// Helper: Maps a username to an internal pseudo-email for Supabase Auth
-function usernameToEmail(username) {
-  // Cleans username and attaches a standard domain format that Supabase accepts
-  const sanitized = username.trim().toLowerCase().replace(/[^a-z0-9_.-]/g, '');
-  return `${sanitized}@anl-player.com`;
+// Helper: Validate username format (letters, numbers, underscores, 3-20 chars)
+function isValidUsername(username) {
+  return /^[a-zA-Z0-9_]{3,20}$/.test(username);
 }
 
-// Helper: Convert standard YouTube links into embed URLs
+// Helper: Maps a username to an internal pseudo-email for Supabase Auth
+function usernameToEmail(username) {
+  return `${username.trim().toLowerCase()}@anl-player.com`;
+}
+
+// Helper: Validate and ensure URLs strictly use http or https (prevent javascript: XSS)
+function safeUrl(rawUrl) {
+  if (!rawUrl) return '';
+  try {
+    const parsed = new URL(rawUrl.trim(), window.location.origin);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return escapeHtml(parsed.href);
+    }
+  } catch (_) {}
+  return '';
+}
+
+// Helper: Convert standard YouTube links into safe embed URLs
 function getYouTubeEmbedUrl(url) {
   if (!url) return '';
-  const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
-  return match ? `https://www.youtube.com/embed/${match[1]}` : url;
+  const match = String(url).match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
+  return match ? `https://www.youtube.com/embed/${match[1]}` : '';
 }
 
 // Helper: Escape HTML to prevent injection
@@ -28,24 +43,36 @@ function escapeHtml(val) {
 
 // Points calculation
 function calculatePoints(rank) {
-  if (rank > SETTINGS.mainListCutoff) return 0;
+  if (!rank || rank > SETTINGS.mainListCutoff || rank < 1) return 0;
   const pts = 350 * Math.pow(55 / 350, (rank - 1) / 24);
   return parseFloat(pts.toFixed(2));
 }
 
 // Startup
 document.addEventListener("DOMContentLoaded", async () => {
-  document.getElementById("discordLink").href = SETTINGS.discordUrl;
-  document.getElementById("ytLink").href = SETTINGS.youtubeUrl;
+  document.getElementById("discordLink").href = safeUrl(SETTINGS.discordUrl) || '#';
+  document.getElementById("ytLink").href = safeUrl(SETTINGS.youtubeUrl) || '#';
 
   setupNavigation();
   setupSearch();
   setupAuth();
   setupForms();
+  setupDelegatedEvents();
 
   await checkAuthSession();
   await fetchLevelsFromDB();
 });
+
+// Setup delegated events (avoids inline onclick attribute injections)
+function setupDelegatedEvents() {
+  const detailsPane = document.getElementById("levelDetails");
+  detailsPane.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".delete-victor-btn");
+    if (btn && btn.dataset.victorId) {
+      await deleteVictor(btn.dataset.victorId);
+    }
+  });
+}
 
 // Check if user has an active session and if they are a moderator
 async function checkAuthSession() {
@@ -59,10 +86,7 @@ async function checkAuthSession() {
       .eq('user_id', currentUser.id)
       .maybeSingle();
 
-    if (mod) {
-      currentModerator = currentUser;
-    }
-
+    currentModerator = mod ? currentUser : null;
     setLoggedInState();
   } else {
     setLoggedOutState();
@@ -155,7 +179,8 @@ function calculateAllPlayerStats() {
     // Credit Victors
     if (level.victors) {
       level.victors.forEach(victor => {
-        const pName = victor.player_name.trim();
+        const pName = (victor.player_name || '').trim();
+        if (!pName) return;
         if (!playerStats[pName]) {
           playerStats[pName] = { points: 0, completions: 0, verifications: 0, beatenLevels: [], verifiedLevels: [] };
         }
@@ -220,18 +245,21 @@ function renderProfile() {
     // Render Completions
     const beatenContainer = document.getElementById("profileCompletedList");
     if (userStats.beatenLevels.length > 0) {
-      beatenContainer.innerHTML = userStats.beatenLevels.sort((a, b) => a.rank - b.rank).map(lvl => `
-        <div class="profile-level-row">
-          <div>
-            <strong>#${lvl.rank} - ${escapeHtml(lvl.name)}</strong>
-            <span class="text-muted" style="font-size: 0.8rem; margin-left: 8px;">(${escapeHtml(lvl.device || 'PC')})</span>
+      beatenContainer.innerHTML = userStats.beatenLevels.sort((a, b) => a.rank - b.rank).map(lvl => {
+        const validatedUrl = safeUrl(lvl.proof_url);
+        return `
+          <div class="profile-level-row">
+            <div>
+              <strong>#${lvl.rank} - ${escapeHtml(lvl.name)}</strong>
+              <span class="text-muted" style="font-size: 0.8rem; margin-left: 8px;">(${escapeHtml(lvl.device || 'PC')})</span>
+            </div>
+            <div style="display: flex; gap: 12px; align-items: center;">
+              <span style="color: var(--accent); font-weight: 600;">+${lvl.points.toFixed(2)} pts</span>
+              ${validatedUrl ? `<a href="${validatedUrl}" target="_blank" rel="noopener noreferrer">Proof</a>` : ''}
+            </div>
           </div>
-          <div style="display: flex; gap: 12px; align-items: center;">
-            <span style="color: var(--accent); font-weight: 600;">+${lvl.points.toFixed(2)} pts</span>
-            ${lvl.proof_url ? `<a href="${escapeHtml(lvl.proof_url)}" target="_blank" rel="noopener noreferrer">Proof</a>` : ''}
-          </div>
-        </div>
-      `).join("");
+        `;
+      }).join("");
     } else {
       beatenContainer.innerHTML = `<p class="text-muted">No completed levels recorded yet.</p>`;
     }
@@ -253,14 +281,13 @@ function renderProfile() {
     }
 
   } else {
-    // Unranked
     document.getElementById("profileRankText").textContent = "Unranked";
     document.getElementById("profileTotalPoints").textContent = "0.00 pts";
     document.getElementById("profileCompletions").textContent = "0";
     document.getElementById("profileVerifications").textContent = "0";
 
     document.getElementById("profileCompletedList").innerHTML = `
-      <p class="text-muted">No records currently match "<strong>${escapeHtml(currentName)}</strong>". If your records use a slightly different name, update it below.</p>
+      <p class="text-muted">No records currently match "<strong>${escapeHtml(currentName)}</strong>".</p>
     `;
     document.getElementById("profileVerifiedList").innerHTML = `
       <p class="text-muted">No verified levels found.</p>
@@ -284,7 +311,7 @@ function renderList() {
     filtered = filtered.filter(lvl =>
       lvl.name.toLowerCase().includes(query) ||
       lvl.creator.toLowerCase().includes(query) ||
-      lvl.verifier.toLowerCase().includes(query)
+      (lvl.verifier && lvl.verifier.toLowerCase().includes(query))
     );
   }
 
@@ -347,7 +374,7 @@ function renderLevelDetails(level) {
     </div>
 
     <div class="video-wrapper">
-      ${embedUrl ? `<iframe src="${embedUrl}" allowfullscreen></iframe>` : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);">No video available</div>`}
+      ${embedUrl ? `<iframe src="${embedUrl}" title="YouTube verification video" allowfullscreen></iframe>` : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);">No valid video available</div>`}
     </div>
 
     <div class="stats-grid">
@@ -368,15 +395,18 @@ function renderLevelDetails(level) {
     <div class="victors-card">
       <h3>Approved 100% Records</h3>
       <div class="victor-list">
-        ${level.victors && level.victors.length > 0 ? level.victors.map(v => `
-          <div class="victor-row">
-            <span><strong>${escapeHtml(v.player_name)}</strong> (${escapeHtml(v.device || 'PC')})</span>
-            <div>
-              <a href="${escapeHtml(v.proof_url)}" target="_blank" rel="noopener noreferrer">Proof</a>
-              ${currentModerator ? `<button class="delete-victor-btn" onclick="deleteVictor('${v.id}')">✕ Delete</button>` : ''}
+        ${level.victors && level.victors.length > 0 ? level.victors.map(v => {
+          const validProof = safeUrl(v.proof_url);
+          return `
+            <div class="victor-row">
+              <span><strong>${escapeHtml(v.player_name)}</strong> (${escapeHtml(v.device || 'PC')})</span>
+              <div>
+                ${validProof ? `<a href="${validProof}" target="_blank" rel="noopener noreferrer">Proof</a>` : ''}
+                ${currentModerator ? `<button type="button" class="delete-victor-btn" data-victor-id="${escapeHtml(v.id)}">✕ Delete</button>` : ''}
+              </div>
             </div>
-          </div>
-        `).join("") : `<p style="color: var(--text-muted); padding: 8px 0;">No victors yet.</p>`}
+          `;
+        }).join("") : `<p style="color: var(--text-muted); padding: 8px 0;">No victors yet.</p>`}
       </div>
     </div>
   `;
@@ -388,7 +418,23 @@ function setupForms() {
   document.getElementById("updateNameForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const newName = document.getElementById("updatePlayerNameInput").value.trim();
-    if (!newName) return;
+
+    if (!isValidUsername(newName)) {
+      alert("Invalid format: Usernames must be 3-20 characters long and contain only letters, numbers, or underscores.");
+      return;
+    }
+
+    const { data: existingUser } = await supabaseClient
+      .from('profiles')
+      .select('id')
+      .ilike('username', newName)
+      .neq('id', currentUser.id)
+      .maybeSingle();
+
+    if (existingUser) {
+      alert("This player name is already reserved by another account.");
+      return;
+    }
 
     const { data, error } = await supabaseClient.auth.updateUser({
       data: { player_name: newName }
@@ -406,17 +452,28 @@ function setupForms() {
   // Add Victor Form
   document.getElementById("addVictorForm").addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (!currentModerator) {
+      alert("Unauthorized: Only moderators can add records.");
+      return;
+    }
+
     const levelId = document.getElementById("victorLevelSelect").value;
     const playerName = document.getElementById("victorPlayerName").value.trim();
-    const proofUrl = document.getElementById("victorProofUrl").value.trim();
+    const rawProof = document.getElementById("victorProofUrl").value.trim();
+    const validatedProof = safeUrl(rawProof);
     const device = document.getElementById("victorDevice").value.trim();
 
+    if (!validatedProof) {
+      alert("Please provide a valid HTTP or HTTPS proof link.");
+      return;
+    }
+
     const { error } = await supabaseClient.from('victors').insert([
-      { level_id: levelId, player_name: playerName, proof_url: proofUrl, device: device, percentage: 100 }
+      { level_id: levelId, player_name: playerName, proof_url: validatedProof, device: device, percentage: 100 }
     ]);
 
     if (error) {
-      alert("Error adding victor: " + error.message);
+      alert("Database error: " + error.message);
     } else {
       alert(`Victor record added for ${playerName}!`);
       document.getElementById("addVictorForm").reset();
@@ -427,44 +484,85 @@ function setupForms() {
   // Add Level Form
   document.getElementById("addLevelForm").addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (!currentModerator) {
+      alert("Unauthorized: Only moderators can place levels.");
+      return;
+    }
+
     const rank = parseInt(document.getElementById("levelRank").value, 10);
     const name = document.getElementById("levelName").value.trim();
     const creator = document.getElementById("levelCreator").value.trim();
     const verifier = document.getElementById("levelVerifier").value.trim();
-    const video = document.getElementById("levelVideo").value.trim();
+    const rawVideo = document.getElementById("levelVideo").value.trim();
+    const validatedVideo = safeUrl(rawVideo);
     const description = document.getElementById("levelDescription").value.trim();
 
-    const { error } = await supabaseClient.from('levels').insert([
-      { rank, name, creator, verifier, video_url: video, description }
-    ]);
-
-    if (error) {
-      alert("Error adding level: " + error.message);
-    } else {
-      alert(`Level ${name} placed at #${rank}!`);
-      document.getElementById("addLevelForm").reset();
-      await fetchLevelsFromDB();
+    if (!rank || rank < 1) {
+      alert("Rank must be an integer greater than 0.");
+      return;
     }
+
+    if (!validatedVideo) {
+      alert("Please enter a valid HTTP or HTTPS video URL.");
+      return;
+    }
+
+    // Attempt RPC shift first; fallback to direct insert if RPC is not installed
+    const { error: rpcError } = await supabaseClient.rpc('insert_level_shift', {
+      p_rank: rank,
+      p_name: name,
+      p_creator: creator,
+      p_verifier: verifier,
+      p_video: validatedVideo,
+      p_desc: description
+    });
+
+    if (rpcError) {
+      const rankTaken = currentLevels.some(l => l.rank === rank);
+      if (rankTaken) {
+        alert(`Rank #${rank} is already assigned. Please resolve or shift ranks in the database first.`);
+        return;
+      }
+
+      const { error: insertError } = await supabaseClient.from('levels').insert([
+        { rank, name, creator, verifier, video_url: validatedVideo, description }
+      ]);
+
+      if (insertError) {
+        alert("Error adding level: " + insertError.message);
+        return;
+      }
+    }
+
+    alert(`Level ${name} successfully placed at #${rank}!`);
+    document.getElementById("addLevelForm").reset();
+    await fetchLevelsFromDB();
   });
 }
 
 // Delete Victor (Moderators only)
-window.deleteVictor = async function(victorId) {
+async function deleteVictor(victorId) {
+  if (!currentModerator) {
+    alert("Unauthorized.");
+    return;
+  }
+
   if (!confirm("Are you sure you want to remove this record?")) return;
 
   const { error } = await supabaseClient.from('victors').delete().eq('id', victorId);
   if (error) {
-    alert("Error deleting victor: " + error.message);
+    alert("Error deleting record: " + error.message);
   } else {
     await fetchLevelsFromDB();
   }
-};
+}
 
 // Populate Admin dropdown
 function populateAdminDropdown() {
   const select = document.getElementById("victorLevelSelect");
+  if (!select) return;
   select.innerHTML = currentLevels.map(lvl => `
-    <option value="${lvl.id}">#${lvl.rank} - ${escapeHtml(lvl.name)}</option>
+    <option value="${escapeHtml(lvl.id)}">#${lvl.rank} - ${escapeHtml(lvl.name)}</option>
   `).join("");
 }
 
@@ -534,13 +632,18 @@ function setupAuth() {
     errorEl.textContent = "";
   };
 
-  // Sign In submit (Username & Password)
+  // Sign In submit
   loginForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const username = document.getElementById("loginUsername").value.trim();
     const password = document.getElementById("loginPassword").value;
-    const pseudoEmail = usernameToEmail(username);
 
+    if (!isValidUsername(username)) {
+      errorEl.textContent = "Usernames may only contain 3-20 letters, numbers, or underscores.";
+      return;
+    }
+
+    const pseudoEmail = usernameToEmail(username);
     errorEl.textContent = "Signing in...";
 
     const { error } = await supabaseClient.auth.signInWithPassword({
@@ -558,13 +661,18 @@ function setupAuth() {
     renderList();
   });
 
-  // Sign Up submit (Username & Password)
+  // Sign Up submit
   signupForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const username = document.getElementById("signupUsername").value.trim();
     const password = document.getElementById("signupPassword").value;
-    const pseudoEmail = usernameToEmail(username);
 
+    if (!isValidUsername(username)) {
+      errorEl.textContent = "Usernames must be 3-20 characters long and contain only alphanumeric characters or underscores.";
+      return;
+    }
+
+    const pseudoEmail = usernameToEmail(username);
     errorEl.textContent = "Creating account...";
 
     const { data, error } = await supabaseClient.auth.signUp({
@@ -578,7 +686,7 @@ function setupAuth() {
     });
 
     if (error) {
-      if (error.message.toLowerCase().includes("already registered")) {
+      if (error.message.toLowerCase().includes("already registered") || error.message.toLowerCase().includes("unique")) {
         errorEl.textContent = "This username is already taken. Please choose another.";
       } else {
         errorEl.textContent = error.message;

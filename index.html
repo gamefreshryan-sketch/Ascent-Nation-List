@@ -43,7 +43,7 @@
       <div class="list-layout">
         <aside class="sidebar">
           <div class="search-box">
-            <input type="text" id="searchInput" placeholder="Search level or creator...">
+            <input type="text" id="searchInput" placeholder="Search level or creator..." maxlength="60">
           </div>
           <div id="levelList" class="level-items-container">
             <div class="loading">Loading levels from database...</div>
@@ -158,7 +158,14 @@
             Match this name exactly to your records on the list so your completions and points sync automatically.
           </p>
           <form id="updateNameForm" class="update-name-form">
-            <input type="text" id="updatePlayerNameInput" placeholder="In-game Name" required>
+            <input 
+              type="text" 
+              id="updatePlayerNameInput" 
+              placeholder="In-game Name" 
+              pattern="^[a-zA-Z0-9_]{3,20}$" 
+              title="3 to 20 letters, numbers, or underscores" 
+              required
+            >
             <button type="submit" class="submit-btn" style="width: auto; padding: 10px 20px;">Save Name</button>
           </form>
         </div>
@@ -178,17 +185,17 @@
           <div class="admin-card">
             <h3>Add Approved Victor</h3>
             <form id="addVictorForm">
-              <label>Select Level</label>
+              <label for="victorLevelSelect">Select Level</label>
               <select id="victorLevelSelect" required></select>
 
-              <label>Player Name</label>
-              <input type="text" id="victorPlayerName" placeholder="e.g. Ascent" required>
+              <label for="victorPlayerName">Player Name</label>
+              <input type="text" id="victorPlayerName" placeholder="e.g. Ascent" required maxlength="50">
 
-              <label>Proof Link (YouTube URL)</label>
+              <label for="victorProofUrl">Proof Link (HTTP/HTTPS URL)</label>
               <input type="url" id="victorProofUrl" placeholder="https://youtu.be/..." required>
 
-              <label>Device / Refresh Rate</label>
-              <input type="text" id="victorDevice" placeholder="e.g. 240Hz or Mobile 120Hz" value="PC 240Hz">
+              <label for="victorDevice">Device / Refresh Rate</label>
+              <input type="text" id="victorDevice" placeholder="e.g. 240Hz or Mobile 120Hz" value="PC 240Hz" maxlength="30">
 
               <button type="submit" class="submit-btn">Save Victor Record</button>
             </form>
@@ -198,23 +205,23 @@
           <div class="admin-card">
             <h3>Place New Level on ANL</h3>
             <form id="addLevelForm">
-              <label>List Rank</label>
+              <label for="levelRank">List Rank</label>
               <input type="number" id="levelRank" min="1" placeholder="Rank (e.g. 1)" required>
 
-              <label>Level Name</label>
-              <input type="text" id="levelName" placeholder="Level Title" required>
+              <label for="levelName">Level Name</label>
+              <input type="text" id="levelName" placeholder="Level Title" required maxlength="100">
 
-              <label>Creator(s)</label>
-              <input type="text" id="levelCreator" placeholder="Creator name(s)" required>
+              <label for="levelCreator">Creator(s)</label>
+              <input type="text" id="levelCreator" placeholder="Creator name(s)" required maxlength="100">
 
-              <label>Verifier</label>
-              <input type="text" id="levelVerifier" placeholder="Verifier name" required>
+              <label for="levelVerifier">Verifier</label>
+              <input type="text" id="levelVerifier" placeholder="Verifier name" required maxlength="50">
 
-              <label>Verification Video URL</label>
+              <label for="levelVideo">Verification Video URL</label>
               <input type="url" id="levelVideo" placeholder="https://youtu.be/..." required>
 
-              <label>Level Description</label>
-              <textarea id="levelDescription" rows="3" placeholder="Brief info about the level..."></textarea>
+              <label for="levelDescription">Level Description</label>
+              <textarea id="levelDescription" rows="3" placeholder="Brief info about the level..." maxlength="500"></textarea>
 
               <button type="submit" class="submit-btn">Publish Level</button>
             </form>
@@ -237,10 +244,18 @@
 
       <!-- FORM: SIGN IN -->
       <form id="loginForm">
-        <label>Username</label>
-        <input type="text" id="loginUsername" placeholder="Enter your username" required autocomplete="username">
+        <label for="loginUsername">Username</label>
+        <input 
+          type="text" 
+          id="loginUsername" 
+          placeholder="Enter your username" 
+          pattern="^[a-zA-Z0-9_]{3,20}$"
+          title="3 to 20 letters, numbers, or underscores"
+          required 
+          autocomplete="username"
+        >
         
-        <label>Password</label>
+        <label for="loginPassword">Password</label>
         <input type="password" id="loginPassword" placeholder="••••••••" required autocomplete="current-password">
 
         <button type="submit" class="submit-btn" style="margin-top: 12px;">Sign In</button>
@@ -248,10 +263,18 @@
 
       <!-- FORM: SIGN UP -->
       <form id="signupForm" style="display: none;">
-        <label>Choose a Username</label>
-        <input type="text" id="signupUsername" placeholder="e.g. Ascent" required autocomplete="username">
+        <label for="signupUsername">Choose a Username</label>
+        <input 
+          type="text" 
+          id="signupUsername" 
+          placeholder="e.g. Ascent" 
+          pattern="^[a-zA-Z0-9_]{3,20}$"
+          title="3 to 20 letters, numbers, or underscores"
+          required 
+          autocomplete="username"
+        >
 
-        <label>Password</label>
+        <label for="signupPassword">Password</label>
         <input type="password" id="signupPassword" minlength="6" placeholder="At least 6 characters" required autocomplete="new-password">
 
         <button type="submit" class="submit-btn" style="margin-top: 12px;">Create Account</button>
