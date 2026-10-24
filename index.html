@@ -23,15 +23,14 @@
       <button class="nav-btn" data-tab="extended">Extended (51+)</button>
       <button class="nav-btn" data-tab="leaderboard">Leaderboard</button>
       <button class="nav-btn" data-tab="rules">Rules & Info</button>
-      <!-- Logged-in User Profile Tab -->
+      <!-- User Profile Tab (Hidden when logged out) -->
       <button class="nav-btn user-only" id="profileTabBtn" data-tab="profile" style="display: none;">👤 My Profile</button>
-      <!-- Moderator Tab -->
+      <!-- Moderator Tab (Hidden for regular users) -->
       <button class="nav-btn mod-only" id="adminTabBtn" data-tab="admin" style="display: none;">⚙️ Admin Panel</button>
     </nav>
     <div class="nav-actions">
       <a id="discordLink" target="_blank" rel="noopener noreferrer" class="social-btn discord">Discord</a>
       <a id="ytLink" target="_blank" rel="noopener noreferrer" class="social-btn youtube">YouTube</a>
-      <!-- Auth Button -->
       <button id="authBtn" class="auth-btn">Sign In / Register</button>
     </div>
   </header>
@@ -104,19 +103,19 @@
       </div>
     </section>
 
-    <!-- VIEW: USER PROFILE (LOGGED IN USERS) -->
+    <!-- VIEW: USER PROFILE -->
     <section id="profileView" class="tab-content">
       <div class="profile-wrapper">
         <div class="profile-header-card">
           <div class="profile-main-info">
             <div class="avatar-circle" id="profileAvatar">?</div>
             <div>
-              <h2 id="profilePlayerName">Player Name</h2>
-              <p id="profileEmail" class="text-muted">user@example.com</p>
+              <h2 id="profilePlayerName">Player</h2>
+              <span class="user-badge">Registered Player</span>
             </div>
           </div>
-          <div class="profile-rank-badge" id="profileRankBadge">
-            <span class="badge-label">Rank</span>
+          <div class="profile-rank-badge">
+            <span class="badge-label">List Rank</span>
             <strong id="profileRankText">#--</strong>
           </div>
         </div>
@@ -137,7 +136,7 @@
           </div>
         </div>
 
-        <!-- COMPLETIONS & VERIFICATIONS TABLES -->
+        <!-- COMPLETIONS & VERIFICATIONS -->
         <div class="profile-records-card">
           <h3>My Completed Levels</h3>
           <div id="profileCompletedList" class="profile-level-list">
@@ -152,14 +151,14 @@
           </div>
         </div>
 
-        <!-- ACCOUNT SETTINGS -->
+        <!-- DISPLAY NAME SETTINGS -->
         <div class="profile-settings-card">
-          <h3>In-Game Name Settings</h3>
+          <h3>Link In-Game Records</h3>
           <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 12px;">
-            Set this to the exact name listed on your submissions to automatically link your points and records.
+            Match this name exactly to your records on the list so your completions and points sync automatically.
           </p>
           <form id="updateNameForm" class="update-name-form">
-            <input type="text" id="updatePlayerNameInput" placeholder="New Player Name" required>
+            <input type="text" id="updatePlayerNameInput" placeholder="In-game Name" required>
             <button type="submit" class="submit-btn" style="width: auto; padding: 10px 20px;">Save Name</button>
           </form>
         </div>
@@ -226,7 +225,7 @@
 
   </main>
 
-  <!-- AUTH MODAL (LOGIN & SIGN UP TABS) -->
+  <!-- AUTH MODAL (USERNAME-BASED) -->
   <div id="authModal" class="modal">
     <div class="modal-content">
       <span class="close-btn" id="closeAuthModal">&times;</span>
@@ -238,24 +237,21 @@
 
       <!-- FORM: SIGN IN -->
       <form id="loginForm">
-        <label>Email Address</label>
-        <input type="email" id="loginEmail" required autocomplete="username">
+        <label>Username</label>
+        <input type="text" id="loginUsername" placeholder="Enter your username" required autocomplete="username">
         
         <label>Password</label>
-        <input type="password" id="loginPassword" required autocomplete="current-password">
+        <input type="password" id="loginPassword" placeholder="••••••••" required autocomplete="current-password">
 
         <button type="submit" class="submit-btn" style="margin-top: 12px;">Sign In</button>
       </form>
 
       <!-- FORM: SIGN UP -->
       <form id="signupForm" style="display: none;">
-        <label>In-Game / Player Name</label>
-        <input type="text" id="signupPlayerName" placeholder="e.g. Ascent" required>
+        <label>Choose a Username</label>
+        <input type="text" id="signupUsername" placeholder="e.g. Ascent" required autocomplete="username">
 
-        <label>Email Address</label>
-        <input type="email" id="signupEmail" required autocomplete="username">
-        
-        <label>Create Password</label>
+        <label>Password</label>
         <input type="password" id="signupPassword" minlength="6" placeholder="At least 6 characters" required autocomplete="new-password">
 
         <button type="submit" class="submit-btn" style="margin-top: 12px;">Create Account</button>

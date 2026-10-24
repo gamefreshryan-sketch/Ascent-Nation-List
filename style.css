@@ -332,6 +332,12 @@ body {
   font-family: var(--font-heading);
 }
 
+.user-badge {
+  font-size: 0.8rem;
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .profile-rank-badge {
   text-align: right;
   background: var(--bg-card);
@@ -490,7 +496,7 @@ body {
   padding: 24px;
   border-radius: 12px;
   width: 100%;
-  max-width: 420px;
+  max-width: 400px;
   position: relative;
 }
 

@@ -4,14 +4,20 @@ let selectedLevelId = null;
 let currentUser = null;
 let currentModerator = null;
 
-// Helper: Embed YouTube URLs
+// Helper: Maps a username to an internal pseudo-email for Supabase Auth
+function usernameToEmail(username) {
+  const sanitized = username.trim().toLowerCase().replace(/[^a-z0-9_.-]/g, '_');
+  return `${sanitized}@anl.local`;
+}
+
+// Helper: Convert standard YouTube links into embed URLs
 function getYouTubeEmbedUrl(url) {
   if (!url) return '';
   const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
   return match ? `https://www.youtube.com/embed/${match[1]}` : url;
 }
 
-// Helper: Escape HTML
+// Helper: Escape HTML to prevent injection
 function escapeHtml(val) {
   if (val === null || val === undefined) return '';
   return String(val).replace(/[&<>'"]/g, tag => ({
@@ -19,7 +25,7 @@ function escapeHtml(val) {
   }[tag] || tag));
 }
 
-// Points formula
+// Points calculation
 function calculatePoints(rank) {
   if (rank > SETTINGS.mainListCutoff) return 0;
   const pts = 350 * Math.pow(55 / 350, (rank - 1) / 24);
@@ -40,13 +46,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   await fetchLevelsFromDB();
 });
 
-// Check if user is logged in & if they are a moderator
+// Check if user has an active session and if they are a moderator
 async function checkAuthSession() {
   const { data: { session } } = await supabaseClient.auth.getSession();
   if (session && session.user) {
     currentUser = session.user;
-    
-    // Check if moderator
+
     const { data: mod } = await supabaseClient
       .from('moderators')
       .select('*')
@@ -64,17 +69,14 @@ async function checkAuthSession() {
 }
 
 function setLoggedInState() {
-  const playerName = currentUser.user_metadata?.player_name || currentUser.email.split('@')[0];
-  
-  // Show Profile button
+  const playerName = currentUser.user_metadata?.player_name || "Player";
+
   const profileBtn = document.getElementById("profileTabBtn");
   if (profileBtn) profileBtn.style.display = "inline-block";
 
-  // Show Admin button if moderator
   const adminBtn = document.getElementById("adminTabBtn");
   if (adminBtn) adminBtn.style.display = currentModerator ? "inline-block" : "none";
 
-  // Set Auth button to Logout
   const authBtn = document.getElementById("authBtn");
   authBtn.textContent = `Logout (${playerName})`;
   authBtn.onclick = async () => {
@@ -99,13 +101,13 @@ function setLoggedOutState() {
   };
 }
 
-// Fetch Levels and Victors from Supabase
+// Fetch Levels and Victors using explicit foreign key
 async function fetchLevelsFromDB() {
   const { data, error } = await supabaseClient
     .from('levels')
     .select(`
       id, rank, name, creator, verifier, video_url, description,
-      victors ( id, player_name, percentage, proof_url, device )
+      victors!fk_victors_levels ( id, player_name, percentage, proof_url, device )
     `)
     .order('rank', { ascending: true });
 
@@ -124,7 +126,7 @@ async function fetchLevelsFromDB() {
   populateAdminDropdown();
 }
 
-// Compute player stats globally
+// Calculate Player Stats across all records
 function calculateAllPlayerStats() {
   const playerStats = {};
 
@@ -200,10 +202,9 @@ function renderLeaderboard() {
 function renderProfile() {
   if (!currentUser) return;
 
-  const currentName = (currentUser.user_metadata?.player_name || currentUser.email.split('@')[0]).trim();
-  document.getElementById("profilePlayerName").textContent = currentName;
-  document.getElementById("profileEmail").textContent = currentUser.email;
-  document.getElementById("profileAvatar").textContent = currentName.charAt(0).toUpperCase();
+  const currentName = (currentUser.user_metadata?.player_name || "").trim();
+  document.getElementById("profilePlayerName").textContent = currentName || "Player";
+  document.getElementById("profileAvatar").textContent = (currentName.charAt(0) || "?").toUpperCase();
   document.getElementById("updatePlayerNameInput").value = currentName;
 
   const allStats = calculateAllPlayerStats();
@@ -215,7 +216,7 @@ function renderProfile() {
     document.getElementById("profileCompletions").textContent = userStats.completions;
     document.getElementById("profileVerifications").textContent = userStats.verifications;
 
-    // Render Beaten Levels
+    // Render Completions
     const beatenContainer = document.getElementById("profileCompletedList");
     if (userStats.beatenLevels.length > 0) {
       beatenContainer.innerHTML = userStats.beatenLevels.sort((a, b) => a.rank - b.rank).map(lvl => `
@@ -234,7 +235,7 @@ function renderProfile() {
       beatenContainer.innerHTML = `<p class="text-muted">No completed levels recorded yet.</p>`;
     }
 
-    // Render Verified Levels
+    // Render Verifications
     const verifiedContainer = document.getElementById("profileVerifiedList");
     if (userStats.verifiedLevels.length > 0) {
       verifiedContainer.innerHTML = userStats.verifiedLevels.sort((a, b) => a.rank - b.rank).map(lvl => `
@@ -251,14 +252,14 @@ function renderProfile() {
     }
 
   } else {
-    // Zero records found
+    // Unranked
     document.getElementById("profileRankText").textContent = "Unranked";
     document.getElementById("profileTotalPoints").textContent = "0.00 pts";
     document.getElementById("profileCompletions").textContent = "0";
     document.getElementById("profileVerifications").textContent = "0";
 
     document.getElementById("profileCompletedList").innerHTML = `
-      <p class="text-muted">No records found matching "<strong>${escapeHtml(currentName)}</strong>". If your records use a different name, update your name below.</p>
+      <p class="text-muted">No records currently match "<strong>${escapeHtml(currentName)}</strong>". If your records use a slightly different name, update it below.</p>
     `;
     document.getElementById("profileVerifiedList").innerHTML = `
       <p class="text-muted">No verified levels found.</p>
@@ -380,7 +381,7 @@ function renderLevelDetails(level) {
   `;
 }
 
-// Setup Admin & Profile Forms
+// Setup Admin & Profile forms
 function setupForms() {
   // Update Display Name Form
   document.getElementById("updateNameForm").addEventListener("submit", async (e) => {
@@ -396,7 +397,7 @@ function setupForms() {
       alert("Error updating name: " + error.message);
     } else {
       currentUser = data.user;
-      alert(`Name updated to "${newName}"!`);
+      alert(`In-game name updated to "${newName}"!`);
       setLoggedInState();
     }
   });
@@ -446,7 +447,7 @@ function setupForms() {
   });
 }
 
-// Delete Victor
+// Delete Victor (Moderators only)
 window.deleteVictor = async function(victorId) {
   if (!confirm("Are you sure you want to remove this record?")) return;
 
@@ -458,7 +459,7 @@ window.deleteVictor = async function(victorId) {
   }
 };
 
-// Populate Level Dropdown for Admin
+// Populate Admin dropdown
 function populateAdminDropdown() {
   const select = document.getElementById("victorLevelSelect");
   select.innerHTML = currentLevels.map(lvl => `
@@ -504,7 +505,7 @@ function setupSearch() {
   });
 }
 
-// Auth Tabs & Handlers (Sign In & Sign Up)
+// Username-based Auth Handlers
 function setupAuth() {
   const modal = document.getElementById("authModal");
   const closeBtn = document.getElementById("closeAuthModal");
@@ -532,16 +533,22 @@ function setupAuth() {
     errorEl.textContent = "";
   };
 
-  // Sign In submit
+  // Sign In submit (Username & Password)
   loginForm.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const email = document.getElementById("loginEmail").value.trim();
+    const username = document.getElementById("loginUsername").value.trim();
     const password = document.getElementById("loginPassword").value;
+    const pseudoEmail = usernameToEmail(username);
+
     errorEl.textContent = "Signing in...";
 
-    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+    const { error } = await supabaseClient.auth.signInWithPassword({
+      email: pseudoEmail,
+      password: password
+    });
+
     if (error) {
-      errorEl.textContent = error.message;
+      errorEl.textContent = "Invalid username or password.";
       return;
     }
 
@@ -550,26 +557,31 @@ function setupAuth() {
     renderList();
   });
 
-  // Sign Up submit
+  // Sign Up submit (Username & Password)
   signupForm.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const playerName = document.getElementById("signupPlayerName").value.trim();
-    const email = document.getElementById("signupEmail").value.trim();
+    const username = document.getElementById("signupUsername").value.trim();
     const password = document.getElementById("signupPassword").value;
+    const pseudoEmail = usernameToEmail(username);
+
     errorEl.textContent = "Creating account...";
 
     const { data, error } = await supabaseClient.auth.signUp({
-      email,
-      password,
+      email: pseudoEmail,
+      password: password,
       options: {
         data: {
-          player_name: playerName
+          player_name: username
         }
       }
     });
 
     if (error) {
-      errorEl.textContent = error.message;
+      if (error.message.toLowerCase().includes("already registered")) {
+        errorEl.textContent = "This username is already taken. Please choose another.";
+      } else {
+        errorEl.textContent = error.message;
+      }
       return;
     }
 
@@ -577,10 +589,10 @@ function setupAuth() {
       modal.classList.remove("active");
       await checkAuthSession();
       renderList();
-      alert(`Welcome to ANL, ${playerName}! Your profile is ready.`);
+      alert(`Welcome to ANL, ${username}!`);
     } else {
-      errorEl.style.color = "var(--accent)";
-      errorEl.textContent = "Account registered! If confirmation is required, check your email inbox.";
+      errorEl.textContent = "Account registered! You can now log in.";
+      tabLoginBtn.click();
     }
   });
 }
