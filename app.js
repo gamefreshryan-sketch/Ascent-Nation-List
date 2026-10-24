@@ -6,8 +6,9 @@ let currentModerator = null;
 
 // Helper: Maps a username to an internal pseudo-email for Supabase Auth
 function usernameToEmail(username) {
-  const sanitized = username.trim().toLowerCase().replace(/[^a-z0-9_.-]/g, '_');
-  return `${sanitized}@anl.local`;
+  // Cleans username and attaches a standard domain format that Supabase accepts
+  const sanitized = username.trim().toLowerCase().replace(/[^a-z0-9_.-]/g, '');
+  return `${sanitized}@anl-player.com`;
 }
 
 // Helper: Convert standard YouTube links into embed URLs
