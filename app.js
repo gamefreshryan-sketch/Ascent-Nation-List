@@ -1,7 +1,13 @@
+/**
+ * Ascent Nation List (ANL)
+ * Complete Application Logic
+ */
+
 // ==========================================
 // 1. GLOBAL STATE & SUPABASE CLIENT SETUP
 // ==========================================
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// Named supabaseClient to prevent collision with window.supabase from the CDN
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let state = {
   currentTab: 'main',
@@ -148,7 +154,7 @@ function setupAuth() {
 
   authBtn.addEventListener('click', async () => {
     if (state.currentUser) {
-      await supabase.auth.signOut();
+      await supabaseClient.auth.signOut();
       state.currentUser = null;
       state.currentProfile = null;
       updateAuthUI();
@@ -185,7 +191,7 @@ function setupAuth() {
     const password = document.getElementById('loginPassword').value;
     const internalEmail = `${rawUsername.toLowerCase()}@ascentnation.internal`;
 
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabaseClient.auth.signInWithPassword({
       email: internalEmail,
       password: password
     });
@@ -196,15 +202,14 @@ function setupAuth() {
     }
 
     // CHECK IF USER IS BANNED
-    const { data: profile, error: profileErr } = await supabase
+    const { data: profile } = await supabaseClient
       .from('profiles')
       .select('*')
       .eq('id', data.user.id)
       .single();
 
     if (profile && profile.is_banned) {
-      // Force sign out immediately
-      await supabase.auth.signOut();
+      await supabaseClient.auth.signOut();
       state.currentUser = null;
       state.currentProfile = null;
       authError.innerHTML = `⛔ <strong>Account Banned:</strong> ${escapeHtml(profile.ban_reason || 'Violation of list integrity rules')}.<br><span style="font-size:0.8rem;color:#94a3b8;">Accounts are preserved for appeals. Contact Ascent Nation moderators if you believe this is a false ban.</span>`;
@@ -226,13 +231,13 @@ function setupAuth() {
     const password = document.getElementById('signupPassword').value;
 
     if (!/^[a-zA-Z0-9_]{3,20}$/.test(rawUsername)) {
-      authError.textContent = 'Username must be 3-20 characters (alphanumeric & underscore only).';
+      authError.textContent = 'Username must be 3-20 characters (letters, numbers, underscores only).';
       return;
     }
 
     const internalEmail = `${rawUsername.toLowerCase()}@ascentnation.internal`;
 
-    const { data, error } = await supabase.auth.signUp({
+    const { data, error } = await supabaseClient.auth.signUp({
       email: internalEmail,
       password: password,
       options: { data: { username: rawUsername } }
@@ -243,8 +248,7 @@ function setupAuth() {
       return;
     }
 
-    // Create profile
-    const { error: insertProfileErr } = await supabase.from('profiles').insert([
+    const { error: insertProfileErr } = await supabaseClient.from('profiles').insert([
       { id: data.user.id, username: rawUsername }
     ]);
 
@@ -266,7 +270,7 @@ function setupAuth() {
       e.preventDefault();
       if (!state.currentUser) return;
       const newBio = document.getElementById('updateBioInput').value.trim();
-      const { error } = await supabase
+      const { error } = await supabaseClient
         .from('profiles')
         .update({ bio: newBio })
         .eq('id', state.currentUser.id);
@@ -280,16 +284,16 @@ function setupAuth() {
 }
 
 async function checkSession() {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await supabaseClient.auth.getSession();
   if (session && session.user) {
-    const { data: profile } = await supabase
+    const { data: profile } = await supabaseClient
       .from('profiles')
       .select('*')
       .eq('id', session.user.id)
       .single();
 
     if (profile && profile.is_banned) {
-      await supabase.auth.signOut();
+      await supabaseClient.auth.signOut();
       state.currentUser = null;
       state.currentProfile = null;
       showAccountBanner(`⛔ Your account is banned: ${profile.ban_reason}. Submissions and list changes are disabled.`);
@@ -365,13 +369,11 @@ function setupSubmissionsSystem() {
       return;
     }
 
-    // Check if account banned
     if (state.currentProfile.is_banned) {
       alert(`Your account has been banned: ${state.currentProfile.ban_reason}`);
       return;
     }
 
-    // Check submission ban/timeout
     if (state.currentProfile.submission_banned_until) {
       const banExpires = new Date(state.currentProfile.submission_banned_until);
       if (banExpires > new Date()) {
@@ -399,15 +401,14 @@ function setupSubmissionsSystem() {
     const device = document.getElementById('submissionDevice').value.trim();
     const notes = document.getElementById('submissionNotes').value.trim();
 
-    // Check percentage versus level min requirement
     const targetLevel = state.levels.find(l => l.id === levelId);
     if (targetLevel && percentage < targetLevel.min_pct && percentage < 100) {
       submitError.textContent = `Minimum qualifying requirement for "${targetLevel.name}" is ${targetLevel.min_pct}%.`;
       return;
     }
 
-    // 1. Enforce strict 3 pending submissions limit
-    const { count: pendingCount, error: countErr } = await supabase
+    // Enforce 3 pending submissions limit
+    const { count: pendingCount, error: countErr } = await supabaseClient
       .from('submissions')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', state.currentUser.id)
@@ -423,8 +424,8 @@ function setupSubmissionsSystem() {
       return;
     }
 
-    // 2. Insert into submissions queue
-    const { error: insertErr } = await supabase.from('submissions').insert([{
+    // Insert into submissions queue
+    const { error: insertErr } = await supabaseClient.from('submissions').insert([{
       user_id: state.currentUser.id,
       player_name: state.currentProfile.username,
       type: type,
@@ -446,7 +447,6 @@ function setupSubmissionsSystem() {
     submitRecordForm.reset();
     submitModal.classList.remove('active');
 
-    // Refresh profile if currently viewing
     if (state.currentTab === 'profile') {
       renderProfile(state.currentProfile.username);
     }
@@ -471,10 +471,10 @@ async function loadAdminSubmissionsQueue() {
   const container = document.getElementById('submissionsQueueContainer');
   container.innerHTML = '<div class="loading">Loading queue submissions...</div>';
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from('submissions')
     .select('*, levels(name, rank, min_pct)')
-    .order('created_at', { ascending: true }); // FIFO: Oldest first
+    .order('created_at', { ascending: true });
 
   if (error) {
     container.innerHTML = `<div class="login-error">Error fetching queue: ${error.message}</div>`;
@@ -523,7 +523,6 @@ function renderFilteredAdminQueue() {
     const card = document.createElement('div');
     card.className = 'queue-card';
 
-    // Calculate FIFO queue position among pending items
     let queuePositionHtml = '';
     if (sub.status === 'pending') {
       const pos = state.allPendingSubmissions.findIndex(item => item.id === sub.id) + 1;
@@ -584,8 +583,7 @@ async function acceptSubmission(submissionId) {
   if (!sub) return;
 
   try {
-    // 1. If it's a completion or verification, insert into victors table
-    const { error: victorErr } = await supabase.from('victors').insert([{
+    const { error: victorErr } = await supabaseClient.from('victors').insert([{
       level_id: sub.level_id,
       player_name: sub.player_name,
       user_id: sub.user_id,
@@ -596,16 +594,14 @@ async function acceptSubmission(submissionId) {
 
     if (victorErr) throw victorErr;
 
-    // 2. If it's a verification, update the level's verifier field
     if (sub.type === 'verification' && sub.percentage === 100) {
-      await supabase
+      await supabaseClient
         .from('levels')
         .update({ verifier: sub.player_name, video_url: sub.proof_url })
         .eq('id', sub.level_id);
     }
 
-    // 3. Mark submission as accepted
-    const { error: subErr } = await supabase
+    const { error: subErr } = await supabaseClient
       .from('submissions')
       .update({
         status: 'accepted',
@@ -616,7 +612,6 @@ async function acceptSubmission(submissionId) {
 
     if (subErr) throw subErr;
 
-    // 4. Log moderator action
     await logModeratorAction(
       'ACCEPT_SUBMISSION',
       sub.player_name,
@@ -635,7 +630,7 @@ async function acceptSubmission(submissionId) {
 function openDenyModal(submissionId) {
   const modal = document.getElementById('denyModal');
   document.getElementById('denySubmissionId').value = submissionId;
-  document.getElementById('denyReasonDetail').value = '';
+  document.getElementById('denyReasonDetail').value = document.getElementById('denyPresetSelect').value;
   modal.classList.add('active');
 }
 
@@ -665,7 +660,7 @@ if (denyForm) {
 
     const sub = state.allSubmissions.find(s => s.id === submissionId);
 
-    const { error } = await supabase
+    const { error } = await supabaseClient
       .from('submissions')
       .update({
         status: 'rejected',
@@ -680,7 +675,6 @@ if (denyForm) {
       return;
     }
 
-    // Audit Log
     if (sub) {
       await logModeratorAction(
         'REJECT_SUBMISSION',
@@ -728,7 +722,7 @@ function setupProfileModeration() {
       else if (duration === '1_month') timeoutDate.setMonth(timeoutDate.getMonth() + 1);
       else if (duration === 'forever') timeoutDate = new Date('2099-12-31T23:59:59Z');
 
-      const { error } = await supabase
+      const { error } = await supabaseClient
         .from('profiles')
         .update({ submission_banned_until: timeoutDate.toISOString() })
         .eq('id', targetUserId);
@@ -761,7 +755,7 @@ function setupProfileModeration() {
       const wipeRecords = document.getElementById('banWipeRecordsCheckbox').checked;
 
       // Never delete account - mark is_banned = true
-      const { error: banErr } = await supabase
+      const { error: banErr } = await supabaseClient
         .from('profiles')
         .update({
           is_banned: true,
@@ -776,10 +770,9 @@ function setupProfileModeration() {
         return;
       }
 
-      // Wipe records if checked
       if (wipeRecords) {
-        await supabase.from('victors').delete().eq('player_name', targetName);
-        await supabase.from('levels').update({ verifier: 'Former Verifier (Banned)' }).eq('verifier', targetName);
+        await supabaseClient.from('victors').delete().eq('player_name', targetName);
+        await supabaseClient.from('levels').update({ verifier: 'Former Verifier (Banned)' }).eq('verifier', targetName);
       }
 
       await logModeratorAction(
@@ -788,7 +781,7 @@ function setupProfileModeration() {
         `Account Banned. Reason: ${reason}. Records wiped: ${wipeRecords ? 'Yes' : 'No'}`
       );
 
-      alert(`Account ${targetName} has been permanently banned.`);
+      alert(`Account ${targetName} has been banned.`);
       banModal.classList.remove('active');
       await loadLevels();
       renderProfile(targetName);
@@ -802,7 +795,7 @@ function setupProfileModeration() {
       const targetName = state.viewingProfileUsername;
       if (!confirm(`Are you sure you want to lift the ban on ${targetName}?`)) return;
 
-      const { data: userProfile } = await supabase
+      const { data: userProfile } = await supabaseClient
         .from('profiles')
         .select('id')
         .eq('username', targetName)
@@ -810,7 +803,7 @@ function setupProfileModeration() {
 
       if (!userProfile) return;
 
-      const { error } = await supabase
+      const { error } = await supabaseClient
         .from('profiles')
         .update({
           is_banned: false,
@@ -854,7 +847,7 @@ function openBanModal(userId, username) {
 // AUDIT LOGGING HELPER
 async function logModeratorAction(action, targetName, details) {
   if (!state.currentProfile) return;
-  await supabase.from('mod_logs').insert([{
+  await supabaseClient.from('mod_logs').insert([{
     mod_id: state.currentUser.id,
     mod_username: state.currentProfile.username,
     action: action,
@@ -868,7 +861,7 @@ async function loadModAuditLogs() {
   const tbody = document.getElementById('modLogsBody');
   tbody.innerHTML = '<tr><td colspan="5" class="loading">Loading logs...</td></tr>';
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from('mod_logs')
     .select('*')
     .order('created_at', { ascending: false })
@@ -907,7 +900,7 @@ async function loadModAuditLogs() {
 // 8. DATA LOADING & LEADERBOARD
 // ==========================================
 async function loadLevels() {
-  const { data: levels, error } = await supabase
+  const { data: levels, error } = await supabaseClient
     .from('levels')
     .select('*, victors(*)')
     .order('rank', { ascending: true });
@@ -1044,7 +1037,7 @@ function selectLevel(id) {
 // DELETE VICTOR (MOD DIRECT ACTION)
 async function deleteVictor(victorId) {
   if (!confirm('Remove this victor record?')) return;
-  const { error } = await supabase.from('victors').delete().eq('id', victorId);
+  const { error } = await supabaseClient.from('victors').delete().eq('id', victorId);
   if (!error) {
     await logModeratorAction('DELETE_RECORD', '', `Deleted record ID #${victorId}`);
     await loadLevels();
@@ -1067,18 +1060,15 @@ async function renderProfile(username) {
   const isOwnProfile = state.currentProfile && state.currentProfile.username.toLowerCase() === username.toLowerCase();
   const isMod = state.currentProfile && state.currentProfile.is_mod;
 
-  // Toolbar back button
   const toolbar = document.getElementById('profileToolbar');
   if (toolbar) toolbar.style.display = (!isOwnProfile && state.currentProfile) ? 'block' : 'none';
 
-  // Fetch Profile Row
-  const { data: profile } = await supabase
+  const { data: profile } = await supabaseClient
     .from('profiles')
     .select('*')
     .eq('username', username)
     .maybeSingle();
 
-  // Handle Ban & Timeout Display
   const banBadge = document.getElementById('profileBannedBadge');
   const timeoutBadge = document.getElementById('profileTimeoutBadge');
   const banNotice = document.getElementById('profileBanNotice');
@@ -1105,7 +1095,6 @@ async function renderProfile(username) {
       banNotice.innerHTML = `⏱️ <strong>Submissions Restricted</strong> until ${new Date(profile.submission_banned_until).toLocaleString()}.`;
     }
 
-    // Mod Actions Toolbar on Profile
     if (isMod && !isOwnProfile) {
       modBar.style.display = 'flex';
       punishBtn.onclick = () => openPunishModal(profile.id, profile.username);
@@ -1125,7 +1114,6 @@ async function renderProfile(username) {
     document.getElementById('profileBioDisplay').textContent = 'Community Player';
   }
 
-  // Calculate points and records
   let completionsCount = 0;
   let progressCount = 0;
   let verificationsCount = 0;
@@ -1137,7 +1125,7 @@ async function renderProfile(username) {
   state.levels.forEach(lvl => {
     if (lvl.verifier.toLowerCase() === username.toLowerCase()) {
       verificationsCount++;
-      const vPoints = calculatePoints(lvl.rank, 100) * 1.2; // 20% verifier bonus
+      const vPoints = calculatePoints(lvl.rank, 100) * 1.2;
       totalPoints += vPoints;
       playerVerifications.push({ level: lvl, points: vPoints });
     }
@@ -1158,10 +1146,8 @@ async function renderProfile(username) {
   document.getElementById('profileProgressions').textContent = progressCount;
   document.getElementById('profileVerifications').textContent = verificationsCount;
 
-  // SORT RECORDS
   sortRecords(playerRecords, state.profileSortMode);
 
-  // Render Records
   const completedList = document.getElementById('profileCompletedList');
   if (playerRecords.length === 0) {
     completedList.innerHTML = '<p class="text-muted" style="padding:10px;">No records recorded yet.</p>';
@@ -1181,7 +1167,6 @@ async function renderProfile(username) {
     `).join('');
   }
 
-  // Render Verifications
   const verifiedList = document.getElementById('profileVerifiedList');
   if (playerVerifications.length === 0) {
     verifiedList.innerHTML = '<p class="text-muted" style="padding:10px;">No verified levels.</p>';
@@ -1200,23 +1185,22 @@ async function renderProfile(username) {
     `).join('');
   }
 
-  // PRIVATE SUBMISSIONS QUEUE SECTION (ONLY VISIBLE TO ACCOUNT OWNER OR MODERATOR)
+  // PRIVATE SUBMISSIONS QUEUE (VISIBLE TO OWNER OR MOD)
   const submissionsCard = document.getElementById('userSubmissionsCard');
   if (isOwnProfile || isMod) {
     submissionsCard.style.display = 'block';
-    loadUserPrivateSubmissions(username, isOwnProfile);
+    loadUserPrivateSubmissions(username);
   } else {
     submissionsCard.style.display = 'none';
   }
 }
 
-async function loadUserPrivateSubmissions(username, isOwnProfile) {
+async function loadUserPrivateSubmissions(username) {
   const container = document.getElementById('userSubmissionsList');
   const countBadge = document.getElementById('userPendingCountBadge');
   container.innerHTML = '<div class="loading">Loading your submission queue...</div>';
 
-  // 1. Fetch all pending submissions in the entire database to calculate FIFO queue position
-  const { data: allPending } = await supabase
+  const { data: allPending } = await supabaseClient
     .from('submissions')
     .select('id, created_at')
     .eq('status', 'pending')
@@ -1224,8 +1208,7 @@ async function loadUserPrivateSubmissions(username, isOwnProfile) {
 
   const globalPending = allPending || [];
 
-  // 2. Fetch user's submissions
-  const { data: userSubs, error } = await supabase
+  const { data: userSubs, error } = await supabaseClient
     .from('submissions')
     .select('*, levels(name, rank)')
     .eq('player_name', username)
@@ -1310,7 +1293,6 @@ function renderLeaderboard() {
   const scores = {};
 
   state.levels.forEach(lvl => {
-    // Verifier points
     if (lvl.verifier) {
       const v = lvl.verifier;
       if (!scores[v]) scores[v] = { points: 0, completions: 0, progress: 0, verifications: 0 };
@@ -1318,7 +1300,6 @@ function renderLeaderboard() {
       scores[v].verifications++;
     }
 
-    // Victors
     (lvl.victors || []).forEach(vic => {
       const p = vic.player_name;
       if (!scores[p]) scores[p] = { points: 0, completions: 0, progress: 0, verifications: 0 };
@@ -1371,7 +1352,7 @@ if (addVictorForm) {
     const proof = document.getElementById('victorProofUrl').value.trim();
     const device = document.getElementById('victorDevice').value.trim();
 
-    const { error } = await supabase.from('victors').insert([{
+    const { error } = await supabaseClient.from('victors').insert([{
       level_id: levelId,
       player_name: playerName,
       percentage: pct,
@@ -1403,7 +1384,7 @@ if (addLevelForm) {
     const video = document.getElementById('levelVideo').value.trim();
     const desc = document.getElementById('levelDescription').value.trim();
 
-    const { error } = await supabase.from('levels').insert([{
+    const { error } = await supabaseClient.from('levels').insert([{
       rank: rank,
       name: name,
       length: length,
@@ -1429,7 +1410,7 @@ if (addLevelForm) {
 // 12. UTILITY & HELPER FUNCTIONS
 // ==========================================
 function calculatePoints(rank, percentage) {
-  if (rank > 50) return 0; // Extended list does not award points
+  if (rank > 50) return 0;
   const base = 350.0 * Math.exp(-0.035 * (rank - 1));
   if (percentage === 100) return base;
   return base * (0.1 + 0.4 * (percentage / 100));
