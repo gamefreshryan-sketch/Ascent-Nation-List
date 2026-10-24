@@ -26,9 +26,9 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 // Check if a moderator is already logged in
 async function checkAuthSession() {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await supabaseClient.auth.getSession();
   if (session) {
-    const { data: mod } = await supabase
+    const { data: mod } = await supabaseClient
       .from('moderators')
       .select('*')
       .eq('user_id', session.user.id)
@@ -46,14 +46,14 @@ function setModeratorState(user) {
   const authBtn = document.getElementById("authBtn");
   authBtn.textContent = "Logout";
   authBtn.onclick = async () => {
-    await supabase.auth.signOut();
+    await supabaseClient.auth.signOut();
     location.reload();
   };
 }
 
 // Fetch Levels and Victors from Supabase
 async function fetchLevelsFromDB() {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from('levels')
     .select(`
       id, rank, name, creator, verifier, video_url, description,
@@ -223,7 +223,7 @@ function setupForms() {
     const proofUrl = document.getElementById("victorProofUrl").value.trim();
     const device = document.getElementById("victorDevice").value.trim();
 
-    const { error } = await supabase.from('victors').insert([
+    const { error } = await supabaseClient.from('victors').insert([
       { level_id: levelId, player_name: playerName, proof_url: proofUrl, device: device }
     ]);
 
@@ -246,7 +246,7 @@ function setupForms() {
     const video = document.getElementById("levelVideo").value.trim();
     const description = document.getElementById("levelDescription").value.trim();
 
-    const { error } = await supabase.from('levels').insert([
+    const { error } = await supabaseClient.from('levels').insert([
       { rank, name, creator, verifier, video_url: video, description }
     ]);
 
@@ -264,7 +264,7 @@ function setupForms() {
 async function deleteVictor(victorId) {
   if (!confirm("Are you sure you want to remove this record?")) return;
 
-  const { error } = await supabase.from('victors').delete().eq('id', victorId);
+  const { error } = await supabaseClient.from('victors').delete().eq('id', victorId);
   if (error) {
     alert("Error deleting victor: " + error.message);
   } else {
@@ -338,14 +338,14 @@ function setupAuth() {
 
     errorEl.textContent = "Signing in...";
 
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
     if (error) {
       errorEl.textContent = error.message;
       return;
     }
 
     // Verify moderator privileges
-    const { data: mod } = await supabase
+    const { data: mod } = await supabaseClient
       .from('moderators')
       .select('*')
       .eq('user_id', data.user.id)
@@ -353,7 +353,7 @@ function setupAuth() {
 
     if (!mod) {
       errorEl.textContent = "Account verified, but you lack moderator permissions.";
-      await supabase.auth.signOut();
+      await supabaseClient.auth.signOut();
       return;
     }
 
@@ -363,7 +363,6 @@ function setupAuth() {
   });
 }
 
-// Helper: Escape HTML to prevent basic injection
 function escapeHtml(str) {
   if (!str) return '';
   return str.replace(/[&<>'"]/g, tag => ({
