@@ -23,9 +23,9 @@
       <button class="nav-btn" data-tab="extended">Extended (51+)</button>
       <button class="nav-btn" data-tab="leaderboard">Leaderboard</button>
       <button class="nav-btn" data-tab="rules">Rules & Info</button>
-      <!-- User Profile Tab (Hidden when logged out) -->
-      <button class="nav-btn user-only" id="profileTabBtn" data-tab="profile" style="display: none;">👤 My Profile</button>
-      <!-- Moderator Tab (Hidden for regular users) -->
+      <!-- Profile Tab -->
+      <button class="nav-btn" id="profileTabBtn" data-tab="profile">👤 Player Profile</button>
+      <!-- Moderator Tab -->
       <button class="nav-btn mod-only" id="adminTabBtn" data-tab="admin" style="display: none;">⚙️ Admin Panel</button>
     </nav>
     <div class="nav-actions">
@@ -43,7 +43,7 @@
       <div class="list-layout">
         <aside class="sidebar">
           <div class="search-box">
-            <input type="text" id="searchInput" placeholder="Search level or creator..." maxlength="60">
+            <input type="text" id="searchInput" placeholder="Search level, creator, verifier..." maxlength="60">
           </div>
           <div id="levelList" class="level-items-container">
             <div class="loading">Loading levels from database...</div>
@@ -61,7 +61,7 @@
       <div class="leaderboard-wrapper">
         <div class="panel-header">
           <h2>Ascent Nation Leaderboard</h2>
-          <p>Compete, beat levels, and verify records to climb the ranks!</p>
+          <p>Click on any player's name to view their profile, verifications, and records!</p>
         </div>
         <table class="leaderboard-table">
           <thead>
@@ -69,7 +69,8 @@
               <th>Rank</th>
               <th>Player</th>
               <th>Total Points</th>
-              <th>Completions</th>
+              <th>100% Victories</th>
+              <th>Progress Records</th>
               <th>Verifications</th>
             </tr>
           </thead>
@@ -82,12 +83,14 @@
     <section id="rulesView" class="tab-content">
       <div class="rules-card">
         <h2>What is ANL?</h2>
-        <p><strong>ANL (Ascent Nation List)</strong> is a list of the hardest levels <em>made</em> and <em>verified</em> by members of the Ascent Nation, created by Ascent, M1xxronium, and fellow community members.</p>
+        <p><strong>ANL (Ascent Nation List)</strong> is a list of the hardest levels created and verified by members of the Ascent Nation community.</p>
         <hr>
-        <h2>Points System</h2>
+        <h2>Points & Percentages System</h2>
         <ul>
-          <li><strong>Main List (#1 - #50):</strong> Levels reward points on completion. #1 awards <strong>350.00 pts</strong>.</li>
-          <li><strong>Extended List (#51+):</strong> Free to beat and records are recorded, but award <strong>0.00 pts</strong>.</li>
+          <li><strong>Main List (#1 - #50):</strong> Levels reward points. Rank #1 awards a maximum base of <strong>350.00 pts</strong>.</li>
+          <li><strong>Extended List (#51+):</strong> Records are documented and accepted, but award <strong>0.00 pts</strong>.</li>
+          <li><strong>List Requirement %:</strong> Levels can specify a minimum qualifying percentage (e.g., 60%). Qualifying progress records award between <strong>10% and 50%</strong> of the level's point value depending on progress.</li>
+          <li><strong>Full Completions (100%):</strong> Award <strong>100%</strong> of the level's points.</li>
           <li><strong>Verifier Bonus:</strong> Verifiers receive base placement points <strong>PLUS a 20% bonus</strong>!</li>
         </ul>
         <hr>
@@ -95,23 +98,29 @@
         <ol>
           <li>Must be at least <strong>25 seconds</strong> long.</li>
           <li>No automated levels (No Auto Retray).</li>
-          <li>Offensive, racist, or sexist levels result in an instant ban.</li>
-          <li>Stolen or copied levels are forbidden.</li>
-          <li>Proof of legitimacy is required (clicks/taps, raw video proof).</li>
-          <li>NONG songs are allowed if they don't contain heavily sensitive lyrics.</li>
+          <li>Offensive or abusive levels result in an instant ban.</li>
+          <li>Stolen or copied levels are strictly forbidden.</li>
+          <li>Proof of legitimacy is required (clicks/taps, full raw unedited footage).</li>
+          <li>NONG songs are allowed if they don't contain heavily sensitive audio.</li>
         </ol>
       </div>
     </section>
 
-    <!-- VIEW: USER PROFILE -->
+    <!-- VIEW: USER / PLAYER PROFILE -->
     <section id="profileView" class="tab-content">
       <div class="profile-wrapper">
+        
+        <div class="profile-toolbar" id="profileToolbar" style="display: none;">
+          <button id="viewMyProfileBtn" class="profile-nav-back-btn">⬅ Return to My Profile</button>
+        </div>
+
         <div class="profile-header-card">
           <div class="profile-main-info">
             <div class="avatar-circle" id="profileAvatar">?</div>
             <div>
               <h2 id="profilePlayerName">Player</h2>
-              <span class="user-badge">Registered Player</span>
+              <span class="user-badge" id="profileBadge">Player</span>
+              <p class="profile-bio-text" id="profileBioDisplay">No bio set.</p>
             </div>
           </div>
           <div class="profile-rank-badge">
@@ -127,8 +136,12 @@
             <strong id="profileTotalPoints" style="color: var(--accent);">0.00 pts</strong>
           </div>
           <div class="stat-card">
-            <span>Completions</span>
+            <span>100% Victories</span>
             <strong id="profileCompletions">0</strong>
+          </div>
+          <div class="stat-card">
+            <span>Progress (&ge;Req)</span>
+            <strong id="profileProgressions">0</strong>
           </div>
           <div class="stat-card">
             <span>Verifications</span>
@@ -136,39 +149,46 @@
           </div>
         </div>
 
-        <!-- COMPLETIONS & VERIFICATIONS -->
+        <!-- SORT CONTROLS -->
+        <div class="sort-bar">
+          <span class="sort-label">Sort Records By:</span>
+          <button class="sort-btn active" data-sort="rank">Rank (Default)</button>
+          <button class="sort-btn" data-sort="points">Points</button>
+          <button class="sort-btn" data-sort="pct">Percentage</button>
+          <button class="sort-btn" data-sort="name">Level Name</button>
+        </div>
+
+        <!-- RECORDS LISTS -->
         <div class="profile-records-card">
-          <h3>My Completed Levels</h3>
+          <h3>Completed & Progress Records</h3>
           <div id="profileCompletedList" class="profile-level-list">
-            <p class="text-muted">No completions recorded yet.</p>
+            <p class="text-muted">No records recorded yet.</p>
           </div>
         </div>
 
         <div class="profile-records-card" style="margin-top: 20px;">
-          <h3>My Verified Levels</h3>
+          <h3>Verified Levels</h3>
           <div id="profileVerifiedList" class="profile-level-list">
             <p class="text-muted">No verified levels.</p>
           </div>
         </div>
 
-        <!-- DISPLAY NAME SETTINGS -->
-        <div class="profile-settings-card">
-          <h3>Link In-Game Records</h3>
-          <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 12px;">
-            Match this name exactly to your records on the list so your completions and points sync automatically.
-          </p>
-          <form id="updateNameForm" class="update-name-form">
-            <input 
-              type="text" 
-              id="updatePlayerNameInput" 
-              placeholder="In-game Name" 
-              pattern="^[a-zA-Z0-9_]{3,20}$" 
-              title="3 to 20 letters, numbers, or underscores" 
-              required
-            >
-            <button type="submit" class="submit-btn" style="width: auto; padding: 10px 20px;">Save Name</button>
+        <!-- BIO MANAGEMENT (LOGGED IN USER ONLY) -->
+        <div class="profile-settings-card" id="bioEditCard" style="display: none; margin-top: 20px;">
+          <h3>Edit Personal Bio</h3>
+          <form id="updateBioForm" class="update-bio-form">
+            <textarea id="updateBioInput" maxlength="200" rows="2" placeholder="Tell the community about yourself..."></textarea>
+            <button type="submit" class="submit-btn" style="width: auto; padding: 8px 18px; margin-top: 8px;">Save Bio</button>
           </form>
         </div>
+
+        <!-- SECURITY NOTICE -->
+        <div class="profile-security-notice" style="margin-top: 20px;">
+          <p class="text-muted" style="font-size: 0.85rem;">
+            🔒 <strong>Display Name Security:</strong> Self-service name changes are disabled to protect players against score spoofing and account collisions. To request an official name update, contact an Ascent Nation moderator.
+          </p>
+        </div>
+
       </div>
     </section>
 
@@ -181,9 +201,9 @@
         </div>
 
         <div class="admin-grid">
-          <!-- CARD 1: ADD VICTOR -->
+          <!-- CARD 1: ADD RECORD / VICTOR -->
           <div class="admin-card">
-            <h3>Add Approved Victor</h3>
+            <h3>Add Approved Record</h3>
             <form id="addVictorForm">
               <label for="victorLevelSelect">Select Level</label>
               <select id="victorLevelSelect" required></select>
@@ -191,13 +211,16 @@
               <label for="victorPlayerName">Player Name</label>
               <input type="text" id="victorPlayerName" placeholder="e.g. Ascent" required maxlength="50">
 
+              <label for="victorPercentage">Percentage Achieved (%)</label>
+              <input type="number" id="victorPercentage" min="1" max="100" value="100" required>
+
               <label for="victorProofUrl">Proof Link (HTTP/HTTPS URL)</label>
               <input type="url" id="victorProofUrl" placeholder="https://youtu.be/..." required>
 
               <label for="victorDevice">Device / Refresh Rate</label>
               <input type="text" id="victorDevice" placeholder="e.g. 240Hz or Mobile 120Hz" value="PC 240Hz" maxlength="30">
 
-              <button type="submit" class="submit-btn">Save Victor Record</button>
+              <button type="submit" class="submit-btn">Save Record</button>
             </form>
           </div>
 
@@ -210,6 +233,12 @@
 
               <label for="levelName">Level Name</label>
               <input type="text" id="levelName" placeholder="Level Title" required maxlength="100">
+
+              <label for="levelLength">Level Length</label>
+              <input type="text" id="levelLength" placeholder="e.g. 1:15 or 45s" required maxlength="20">
+
+              <label for="levelMinPct">List Requirement % (Min qualifying progress)</label>
+              <input type="number" id="levelMinPct" min="1" max="100" value="100" required>
 
               <label for="levelCreator">Creator(s)</label>
               <input type="text" id="levelCreator" placeholder="Creator name(s)" required maxlength="100">
@@ -232,7 +261,7 @@
 
   </main>
 
-  <!-- AUTH MODAL (USERNAME-BASED) -->
+  <!-- AUTH MODAL -->
   <div id="authModal" class="modal">
     <div class="modal-content">
       <span class="close-btn" id="closeAuthModal">&times;</span>

@@ -9,6 +9,7 @@
   --text-muted: #94a3b8;
   --border: #2d3345;
   --danger: #ef4444;
+  --success: #10b981;
   --font-heading: 'Montserrat', sans-serif;
   --font-body: 'Inter', sans-serif;
 }
@@ -153,7 +154,12 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
-.search-box input, .admin-card input, .admin-card select, .admin-card textarea, .modal-content input, .update-name-form input {
+.search-box input, 
+.admin-card input, 
+.admin-card select, 
+.admin-card textarea, 
+.modal-content input, 
+.update-bio-form textarea {
   width: 100%;
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -163,6 +169,7 @@ body {
   outline: none;
   margin-top: 4px;
   margin-bottom: 12px;
+  font-family: inherit;
 }
 
 .level-items-container {
@@ -244,7 +251,7 @@ body {
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 16px;
   margin-bottom: 24px;
 }
@@ -265,6 +272,42 @@ body {
 }
 
 .stat-card strong { font-size: 1.15rem; }
+
+/* PLAYER LINKS */
+.player-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+  transition: 0.15s;
+  cursor: pointer;
+}
+
+.player-link:hover {
+  text-decoration: underline;
+  color: #7dd3fc;
+}
+
+/* PERCENTAGE BADGES */
+.pct-badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-left: 8px;
+}
+
+.pct-badge.pct-100 {
+  background: rgba(16, 185, 129, 0.2);
+  color: var(--success);
+  border: 1px solid var(--success);
+}
+
+.pct-badge.pct-partial {
+  background: rgba(245, 158, 11, 0.2);
+  color: var(--accent-gold);
+  border: 1px solid var(--accent-gold);
+}
 
 /* VICTORS LIST */
 .victors-card {
@@ -301,6 +344,25 @@ body {
   margin: 0 auto;
 }
 
+.profile-toolbar {
+  margin-bottom: 16px;
+}
+
+.profile-nav-back-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--accent);
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.profile-nav-back-btn:hover {
+  background: var(--bg-hover);
+}
+
 .profile-header-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
@@ -319,23 +381,34 @@ body {
 }
 
 .avatar-circle {
-  width: 54px;
-  height: 54px;
+  width: 58px;
+  height: 58px;
   border-radius: 50%;
   background: linear-gradient(135deg, #0284c7, #38bdf8);
   color: #000;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.6rem;
+  font-size: 1.8rem;
   font-weight: 800;
   font-family: var(--font-heading);
+  flex-shrink: 0;
 }
 
 .user-badge {
-  font-size: 0.8rem;
+  display: inline-block;
+  font-size: 0.75rem;
   color: var(--accent);
-  font-weight: 600;
+  font-weight: 700;
+  margin-top: 2px;
+}
+
+.profile-bio-text {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-top: 6px;
+  max-width: 480px;
+  line-height: 1.4;
 }
 
 .profile-rank-badge {
@@ -361,9 +434,49 @@ body {
 
 .profile-stats-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 16px;
   margin-bottom: 20px;
+}
+
+/* SORT CONTROLS */
+.sort-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.sort-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-weight: 700;
+  margin-right: 4px;
+}
+
+.sort-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.15s;
+}
+
+.sort-btn:hover {
+  color: var(--text-main);
+  background: var(--bg-hover);
+}
+
+.sort-btn.active {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
 }
 
 .profile-records-card, .profile-settings-card {
@@ -395,16 +508,6 @@ body {
 
 .profile-level-row a { color: var(--accent); text-decoration: none; }
 .profile-level-row a:hover { text-decoration: underline; }
-
-.update-name-form {
-  display: flex;
-  gap: 12px;
-}
-
-.update-name-form input {
-  margin-bottom: 0;
-  max-width: 320px;
-}
 
 /* LEADERBOARD & RULES */
 .leaderboard-wrapper, .rules-card, .admin-wrapper {
@@ -542,6 +645,4 @@ body {
 
 @media(max-width: 860px) {
   .list-layout, .admin-grid, .profile-stats-grid { grid-template-columns: 1fr; height: auto; }
-  .update-name-form { flex-direction: column; }
-  .update-name-form input { max-width: 100%; }
 }

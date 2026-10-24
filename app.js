@@ -3,18 +3,20 @@ let currentTab = "main";
 let selectedLevelId = null;
 let currentUser = null;
 let currentModerator = null;
+let activeProfilePlayer = null; // When viewing another player's profile
+let currentProfileSort = "rank"; // 'rank', 'points', 'pct', 'name'
 
-// Helper: Validate username format (letters, numbers, underscores, 3-20 chars)
+// Helper: Validate username format
 function isValidUsername(username) {
   return /^[a-zA-Z0-9_]{3,20}$/.test(username);
 }
 
-// Helper: Maps a username to an internal pseudo-email for Supabase Auth
+// Helper: Internal pseudo-email for Supabase Auth
 function usernameToEmail(username) {
   return `${username.trim().toLowerCase()}@anl-player.com`;
 }
 
-// Helper: Validate and ensure URLs strictly use http or https (prevent javascript: XSS)
+// Helper: Ensure URLs strictly use HTTP or HTTPS protocols
 function safeUrl(rawUrl) {
   if (!rawUrl) return '';
   try {
@@ -33,7 +35,7 @@ function getYouTubeEmbedUrl(url) {
   return match ? `https://www.youtube.com/embed/${match[1]}` : '';
 }
 
-// Helper: Escape HTML to prevent injection
+// Helper: Escape HTML entities
 function escapeHtml(val) {
   if (val === null || val === undefined) return '';
   return String(val).replace(/[&<>'"]/g, tag => ({
@@ -41,11 +43,34 @@ function escapeHtml(val) {
   }[tag] || tag));
 }
 
-// Points calculation
+// Base points calculation for 100% completion
 function calculatePoints(rank) {
   if (!rank || rank > SETTINGS.mainListCutoff || rank < 1) return 0;
   const pts = 350 * Math.pow(55 / 350, (rank - 1) / 24);
   return parseFloat(pts.toFixed(2));
+}
+
+// Progressive points calculation:
+// 100% gives full points.
+// Min Requirement % gives 10% points, scaling linearly up to 50% at 99%.
+function calculatePointsForRecord(rank, percentage, minReq = 100) {
+  const basePts = calculatePoints(rank);
+  if (basePts === 0) return 0;
+
+  const pct = Math.min(100, Math.max(0, parseInt(percentage, 10) || 100));
+  const minPercent = Math.min(100, Math.max(1, parseInt(minReq, 10) || 100));
+
+  if (pct === 100) {
+    return basePts;
+  }
+
+  if (pct >= minPercent && minPercent < 100) {
+    const progressRatio = (pct - minPercent) / (100 - minPercent);
+    const multiplier = 0.10 + (0.40 * progressRatio);
+    return parseFloat((basePts * multiplier).toFixed(2));
+  }
+
+  return 0;
 }
 
 // Startup
@@ -63,18 +88,61 @@ document.addEventListener("DOMContentLoaded", async () => {
   await fetchLevelsFromDB();
 });
 
-// Setup delegated events (avoids inline onclick attribute injections)
+// Setup click delegation for player links, profile sorting, and deletion
 function setupDelegatedEvents() {
-  const detailsPane = document.getElementById("levelDetails");
-  detailsPane.addEventListener("click", async (e) => {
-    const btn = e.target.closest(".delete-victor-btn");
-    if (btn && btn.dataset.victorId) {
-      await deleteVictor(btn.dataset.victorId);
+  document.addEventListener("click", async (e) => {
+    // 1. Player link clicked (e.g. in Leaderboard or Victors)
+    const playerLink = e.target.closest(".player-link");
+    if (playerLink && playerLink.dataset.player) {
+      e.preventDefault();
+      openPlayerProfile(playerLink.dataset.player);
+      return;
+    }
+
+    // 2. Return to own profile button
+    if (e.target.id === "viewMyProfileBtn") {
+      activeProfilePlayer = null;
+      renderProfile();
+      return;
+    }
+
+    // 3. Profile record sort buttons
+    const sortBtn = e.target.closest(".sort-btn");
+    if (sortBtn && sortBtn.dataset.sort) {
+      document.querySelectorAll(".sort-btn").forEach(b => b.classList.remove("active"));
+      sortBtn.classList.add("active");
+      currentProfileSort = sortBtn.dataset.sort;
+      renderProfile();
+      return;
+    }
+
+    // 4. Delete record button
+    const delBtn = e.target.closest(".delete-victor-btn");
+    if (delBtn && delBtn.dataset.victorId) {
+      await deleteVictor(delBtn.dataset.victorId);
+      return;
     }
   });
 }
 
-// Check if user has an active session and if they are a moderator
+// Switch to profile view focusing on a specific player
+function openPlayerProfile(playerName) {
+  activeProfilePlayer = playerName.trim();
+
+  document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
+  document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
+
+  const profileBtn = document.getElementById("profileTabBtn");
+  if (profileBtn) profileBtn.classList.add("active");
+
+  const profileView = document.getElementById("profileView");
+  if (profileView) profileView.classList.add("active");
+
+  currentTab = "profile";
+  renderProfile();
+}
+
+// Check session & moderator status
 async function checkAuthSession() {
   const { data: { session } } = await supabaseClient.auth.getSession();
   if (session && session.user) {
@@ -96,9 +164,6 @@ async function checkAuthSession() {
 function setLoggedInState() {
   const playerName = currentUser.user_metadata?.player_name || "Player";
 
-  const profileBtn = document.getElementById("profileTabBtn");
-  if (profileBtn) profileBtn.style.display = "inline-block";
-
   const adminBtn = document.getElementById("adminTabBtn");
   if (adminBtn) adminBtn.style.display = currentModerator ? "inline-block" : "none";
 
@@ -116,7 +181,6 @@ function setLoggedOutState() {
   currentUser = null;
   currentModerator = null;
 
-  document.getElementById("profileTabBtn").style.display = "none";
   document.getElementById("adminTabBtn").style.display = "none";
 
   const authBtn = document.getElementById("authBtn");
@@ -124,14 +188,16 @@ function setLoggedOutState() {
   authBtn.onclick = () => {
     document.getElementById("authModal").classList.add("active");
   };
+
+  renderProfile();
 }
 
-// Fetch Levels and Victors using explicit foreign key
+// Fetch Levels and Victors
 async function fetchLevelsFromDB() {
   const { data, error } = await supabaseClient
     .from('levels')
     .select(`
-      id, rank, name, creator, verifier, video_url, description,
+      *,
       victors!fk_victors_levels ( id, player_name, percentage, proof_url, device )
     `)
     .order('rank', { ascending: true });
@@ -151,18 +217,26 @@ async function fetchLevelsFromDB() {
   populateAdminDropdown();
 }
 
-// Calculate Player Stats across all records
+// Calculate comprehensive player stats
 function calculateAllPlayerStats() {
   const playerStats = {};
 
   currentLevels.forEach(level => {
     const basePts = calculatePoints(level.rank);
+    const minReq = level.min_percentage ? parseInt(level.min_percentage, 10) : 100;
 
     // Credit Verifier
     if (level.verifier) {
       const vName = level.verifier.trim();
       if (!playerStats[vName]) {
-        playerStats[vName] = { points: 0, completions: 0, verifications: 0, beatenLevels: [], verifiedLevels: [] };
+        playerStats[vName] = {
+          points: 0,
+          completions: 0,
+          progressions: 0,
+          verifications: 0,
+          beatenLevels: [],
+          verifiedLevels: []
+        };
       }
       const verifierPts = basePts * (1 + SETTINGS.verifierBonusPct);
       playerStats[vName].points += verifierPts;
@@ -176,23 +250,44 @@ function calculateAllPlayerStats() {
       });
     }
 
-    // Credit Victors
+    // Credit Victors & Qualifying Progress
     if (level.victors) {
       level.victors.forEach(victor => {
         const pName = (victor.player_name || '').trim();
         if (!pName) return;
+
+        const pct = parseInt(victor.percentage, 10) || 100;
+        if (pct < minReq) return; // Disregard records below requirement
+
         if (!playerStats[pName]) {
-          playerStats[pName] = { points: 0, completions: 0, verifications: 0, beatenLevels: [], verifiedLevels: [] };
+          playerStats[pName] = {
+            points: 0,
+            completions: 0,
+            progressions: 0,
+            verifications: 0,
+            beatenLevels: [],
+            verifiedLevels: []
+          };
         }
-        playerStats[pName].points += basePts;
-        playerStats[pName].completions += 1;
+
+        const earnedPoints = calculatePointsForRecord(level.rank, pct, minReq);
+        playerStats[pName].points += earnedPoints;
+
+        if (pct === 100) {
+          playerStats[pName].completions += 1;
+        } else {
+          playerStats[pName].progressions += 1;
+        }
+
         playerStats[pName].beatenLevels.push({
           id: level.id,
           rank: level.rank,
           name: level.name,
           device: victor.device,
           proof_url: victor.proof_url,
-          points: basePts
+          points: earnedPoints,
+          percentage: pct,
+          isCompletion: pct === 100
         });
       });
     }
@@ -216,41 +311,93 @@ function renderLeaderboard() {
   tbody.innerHTML = sorted.map((p) => `
     <tr>
       <td><strong>#${p.rank}</strong></td>
-      <td><strong>${escapeHtml(p.name)}</strong></td>
+      <td>
+        <a href="#" class="player-link" data-player="${escapeHtml(p.name)}">${escapeHtml(p.name)}</a>
+      </td>
       <td style="color: var(--accent); font-weight:700;">${p.points.toFixed(2)}</td>
       <td>${p.completions}</td>
+      <td>${p.progressions}</td>
       <td>${p.verifications}</td>
     </tr>
   `).join("");
 }
 
-// Render User Profile
+// Render User or Selected Player Profile
 function renderProfile() {
-  if (!currentUser) return;
-
-  const currentName = (currentUser.user_metadata?.player_name || "").trim();
-  document.getElementById("profilePlayerName").textContent = currentName || "Player";
-  document.getElementById("profileAvatar").textContent = (currentName.charAt(0) || "?").toUpperCase();
-  document.getElementById("updatePlayerNameInput").value = currentName;
-
   const allStats = calculateAllPlayerStats();
-  const userStats = allStats.find(p => p.name.toLowerCase() === currentName.toLowerCase());
+
+  let targetPlayerName = activeProfilePlayer;
+  const isViewingSelf = !activeProfilePlayer || (
+    currentUser && currentUser.user_metadata?.player_name?.toLowerCase() === activeProfilePlayer.toLowerCase()
+  );
+
+  if (!targetPlayerName) {
+    if (currentUser) {
+      targetPlayerName = currentUser.user_metadata?.player_name || "";
+    } else {
+      targetPlayerName = allStats.length > 0 ? allStats[0].name : "Player";
+    }
+  }
+
+  // Handle return toolbar
+  const toolbar = document.getElementById("profileToolbar");
+  if (currentUser && !isViewingSelf) {
+    toolbar.style.display = "block";
+  } else {
+    toolbar.style.display = "none";
+  }
+
+  // Handle Bio Edit Card
+  const bioEditCard = document.getElementById("bioEditCard");
+  if (currentUser && isViewingSelf) {
+    bioEditCard.style.display = "block";
+    document.getElementById("updateBioInput").value = currentUser.user_metadata?.bio || "";
+  } else {
+    bioEditCard.style.display = "none";
+  }
+
+  // Bio Display
+  const bioDisplay = document.getElementById("profileBioDisplay");
+  if (isViewingSelf && currentUser) {
+    bioDisplay.textContent = currentUser.user_metadata?.bio || "No personal bio written yet.";
+  } else {
+    bioDisplay.textContent = `Showing Ascent Nation public profile for ${targetPlayerName}.`;
+  }
+
+  document.getElementById("profilePlayerName").textContent = targetPlayerName;
+  document.getElementById("profileAvatar").textContent = (targetPlayerName.charAt(0) || "?").toUpperCase();
+  document.getElementById("profileBadge").textContent = isViewingSelf && currentUser ? "My Account" : "Player";
+
+  const userStats = allStats.find(p => p.name.toLowerCase() === targetPlayerName.toLowerCase());
 
   if (userStats) {
     document.getElementById("profileRankText").textContent = `#${userStats.rank}`;
     document.getElementById("profileTotalPoints").textContent = `${userStats.points.toFixed(2)} pts`;
     document.getElementById("profileCompletions").textContent = userStats.completions;
+    document.getElementById("profileProgressions").textContent = userStats.progressions;
     document.getElementById("profileVerifications").textContent = userStats.verifications;
 
-    // Render Completions
+    // Sort beaten/progress levels according to selected sort
+    const records = [...userStats.beatenLevels];
+    if (currentProfileSort === "rank") {
+      records.sort((a, b) => a.rank - b.rank);
+    } else if (currentProfileSort === "points") {
+      records.sort((a, b) => b.points - a.points);
+    } else if (currentProfileSort === "pct") {
+      records.sort((a, b) => b.percentage - a.percentage);
+    } else if (currentProfileSort === "name") {
+      records.sort((a, b) => a.name.localeCompare(b.name));
+    }
+
     const beatenContainer = document.getElementById("profileCompletedList");
-    if (userStats.beatenLevels.length > 0) {
-      beatenContainer.innerHTML = userStats.beatenLevels.sort((a, b) => a.rank - b.rank).map(lvl => {
+    if (records.length > 0) {
+      beatenContainer.innerHTML = records.map(lvl => {
         const validatedUrl = safeUrl(lvl.proof_url);
         return `
           <div class="profile-level-row">
             <div>
               <strong>#${lvl.rank} - ${escapeHtml(lvl.name)}</strong>
+              <span class="pct-badge ${lvl.isCompletion ? 'pct-100' : 'pct-partial'}">${lvl.percentage}%</span>
               <span class="text-muted" style="font-size: 0.8rem; margin-left: 8px;">(${escapeHtml(lvl.device || 'PC')})</span>
             </div>
             <div style="display: flex; gap: 12px; align-items: center;">
@@ -261,7 +408,7 @@ function renderProfile() {
         `;
       }).join("");
     } else {
-      beatenContainer.innerHTML = `<p class="text-muted">No completed levels recorded yet.</p>`;
+      beatenContainer.innerHTML = `<p class="text-muted">No completed or qualifying progress records found.</p>`;
     }
 
     // Render Verifications
@@ -284,13 +431,14 @@ function renderProfile() {
     document.getElementById("profileRankText").textContent = "Unranked";
     document.getElementById("profileTotalPoints").textContent = "0.00 pts";
     document.getElementById("profileCompletions").textContent = "0";
+    document.getElementById("profileProgressions").textContent = "0";
     document.getElementById("profileVerifications").textContent = "0";
 
     document.getElementById("profileCompletedList").innerHTML = `
-      <p class="text-muted">No records currently match "<strong>${escapeHtml(currentName)}</strong>".</p>
+      <p class="text-muted">No list records found for "<strong>${escapeHtml(targetPlayerName)}</strong>".</p>
     `;
     document.getElementById("profileVerifiedList").innerHTML = `
-      <p class="text-muted">No verified levels found.</p>
+      <p class="text-muted">No verified levels.</p>
     `;
   }
 }
@@ -358,6 +506,8 @@ function renderLevelDetails(level) {
   }
 
   const points = calculatePoints(level.rank);
+  const minReq = level.min_percentage ? parseInt(level.min_percentage, 10) : 100;
+  const lengthStr = level.length || "N/A";
   const verifierBonus = (points * SETTINGS.verifierBonusPct).toFixed(2);
   const totalVerifierPts = (points * (1 + SETTINGS.verifierBonusPct)).toFixed(2);
   const embedUrl = getYouTubeEmbedUrl(level.video_url);
@@ -366,7 +516,10 @@ function renderLevelDetails(level) {
     <div class="level-header">
       <div class="level-title-group">
         <h2>#${level.rank} - ${escapeHtml(level.name)}</h2>
-        <p>Created by <strong>${escapeHtml(level.creator)}</strong> | Verified by <strong>${escapeHtml(level.verifier)}</strong></p>
+        <p>
+          Created by <strong>${escapeHtml(level.creator)}</strong> | 
+          Verified by <a href="#" class="player-link" data-player="${escapeHtml(level.verifier)}"><strong>${escapeHtml(level.verifier)}</strong></a>
+        </p>
       </div>
       <div class="points-pill">
         ${points > 0 ? `${points.toFixed(2)} pts` : "0.00 pts (Extended)"}
@@ -374,39 +527,53 @@ function renderLevelDetails(level) {
     </div>
 
     <div class="video-wrapper">
-      ${embedUrl ? `<iframe src="${embedUrl}" title="YouTube verification video" allowfullscreen></iframe>` : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);">No valid video available</div>`}
+      ${embedUrl ? `<iframe src="${embedUrl}" title="Verification video" allowfullscreen></iframe>` : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);">No valid video available</div>`}
     </div>
 
     <div class="stats-grid">
+      <div class="stat-card">
+        <span>Level Length</span>
+        <strong>${escapeHtml(lengthStr)}</strong>
+      </div>
+      <div class="stat-card">
+        <span>List Requirement</span>
+        <strong style="color: var(--accent);">${minReq}% or better</strong>
+      </div>
       <div class="stat-card">
         <span>Verifier Bonus</span>
         <strong>${points > 0 ? `+${verifierBonus} pts (${totalVerifierPts} total)` : '0 pts'}</strong>
       </div>
       <div class="stat-card">
-        <span>Total Victors</span>
-        <strong>${level.victors ? level.victors.length : 0} Victor(s)</strong>
-      </div>
-      <div class="stat-card">
-        <span>Description</span>
-        <strong style="font-size:0.85rem; font-weight: normal;">${escapeHtml(level.description || "No description provided.")}</strong>
+        <span>Total Records</span>
+        <strong>${level.victors ? level.victors.length : 0} Record(s)</strong>
       </div>
     </div>
 
+    <div class="stat-card" style="margin-bottom: 24px;">
+      <span>Description</span>
+      <strong style="font-size:0.85rem; font-weight: normal;">${escapeHtml(level.description || "No description provided.")}</strong>
+    </div>
+
     <div class="victors-card">
-      <h3>Approved 100% Records</h3>
+      <h3>Approved Records (&ge;${minReq}%)</h3>
       <div class="victor-list">
         ${level.victors && level.victors.length > 0 ? level.victors.map(v => {
           const validProof = safeUrl(v.proof_url);
+          const pct = v.percentage || 100;
           return `
             <div class="victor-row">
-              <span><strong>${escapeHtml(v.player_name)}</strong> (${escapeHtml(v.device || 'PC')})</span>
+              <div>
+                <a href="#" class="player-link" data-player="${escapeHtml(v.player_name)}"><strong>${escapeHtml(v.player_name)}</strong></a>
+                <span class="pct-badge ${pct === 100 ? 'pct-100' : 'pct-partial'}">${pct}%</span>
+                <span class="text-muted" style="font-size:0.85rem; margin-left:6px;">(${escapeHtml(v.device || 'PC')})</span>
+              </div>
               <div>
                 ${validProof ? `<a href="${validProof}" target="_blank" rel="noopener noreferrer">Proof</a>` : ''}
                 ${currentModerator ? `<button type="button" class="delete-victor-btn" data-victor-id="${escapeHtml(v.id)}">✕ Delete</button>` : ''}
               </div>
             </div>
           `;
-        }).join("") : `<p style="color: var(--text-muted); padding: 8px 0;">No victors yet.</p>`}
+        }).join("") : `<p style="color: var(--text-muted); padding: 8px 0;">No approved records yet.</p>`}
       </div>
     </div>
   `;
@@ -414,40 +581,27 @@ function renderLevelDetails(level) {
 
 // Setup Admin & Profile forms
 function setupForms() {
-  // Update Display Name Form
-  document.getElementById("updateNameForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const newName = document.getElementById("updatePlayerNameInput").value.trim();
+  // Update Bio Form
+  const bioForm = document.getElementById("updateBioForm");
+  if (bioForm) {
+    bioForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!currentUser) return;
 
-    if (!isValidUsername(newName)) {
-      alert("Invalid format: Usernames must be 3-20 characters long and contain only letters, numbers, or underscores.");
-      return;
-    }
+      const newBio = document.getElementById("updateBioInput").value.trim();
+      const { data, error } = await supabaseClient.auth.updateUser({
+        data: { bio: newBio }
+      });
 
-    const { data: existingUser } = await supabaseClient
-      .from('profiles')
-      .select('id')
-      .ilike('username', newName)
-      .neq('id', currentUser.id)
-      .maybeSingle();
-
-    if (existingUser) {
-      alert("This player name is already reserved by another account.");
-      return;
-    }
-
-    const { data, error } = await supabaseClient.auth.updateUser({
-      data: { player_name: newName }
+      if (error) {
+        alert("Failed to save bio: " + error.message);
+      } else {
+        currentUser = data.user;
+        alert("Personal bio updated!");
+        renderProfile();
+      }
     });
-
-    if (error) {
-      alert("Error updating name: " + error.message);
-    } else {
-      currentUser = data.user;
-      alert(`In-game name updated to "${newName}"!`);
-      setLoggedInState();
-    }
-  });
+  }
 
   // Add Victor Form
   document.getElementById("addVictorForm").addEventListener("submit", async (e) => {
@@ -459,6 +613,7 @@ function setupForms() {
 
     const levelId = document.getElementById("victorLevelSelect").value;
     const playerName = document.getElementById("victorPlayerName").value.trim();
+    const percentage = parseInt(document.getElementById("victorPercentage").value, 10) || 100;
     const rawProof = document.getElementById("victorProofUrl").value.trim();
     const validatedProof = safeUrl(rawProof);
     const device = document.getElementById("victorDevice").value.trim();
@@ -469,14 +624,15 @@ function setupForms() {
     }
 
     const { error } = await supabaseClient.from('victors').insert([
-      { level_id: levelId, player_name: playerName, proof_url: validatedProof, device: device, percentage: 100 }
+      { level_id: levelId, player_name: playerName, percentage: percentage, proof_url: validatedProof, device: device }
     ]);
 
     if (error) {
       alert("Database error: " + error.message);
     } else {
-      alert(`Victor record added for ${playerName}!`);
+      alert(`Record added for ${playerName} (${percentage}%)!`);
       document.getElementById("addVictorForm").reset();
+      document.getElementById("victorPercentage").value = "100";
       await fetchLevelsFromDB();
     }
   });
@@ -491,6 +647,8 @@ function setupForms() {
 
     const rank = parseInt(document.getElementById("levelRank").value, 10);
     const name = document.getElementById("levelName").value.trim();
+    const length = document.getElementById("levelLength").value.trim();
+    const minPct = parseInt(document.getElementById("levelMinPct").value, 10) || 100;
     const creator = document.getElementById("levelCreator").value.trim();
     const verifier = document.getElementById("levelVerifier").value.trim();
     const rawVideo = document.getElementById("levelVideo").value.trim();
@@ -507,14 +665,16 @@ function setupForms() {
       return;
     }
 
-    // Attempt RPC shift first; fallback to direct insert if RPC is not installed
+    // Try RPC shift first
     const { error: rpcError } = await supabaseClient.rpc('insert_level_shift', {
       p_rank: rank,
       p_name: name,
       p_creator: creator,
       p_verifier: verifier,
       p_video: validatedVideo,
-      p_desc: description
+      p_desc: description,
+      p_length: length,
+      p_min_pct: minPct
     });
 
     if (rpcError) {
@@ -525,7 +685,16 @@ function setupForms() {
       }
 
       const { error: insertError } = await supabaseClient.from('levels').insert([
-        { rank, name, creator, verifier, video_url: validatedVideo, description }
+        { 
+          rank, 
+          name, 
+          length, 
+          min_percentage: minPct, 
+          creator, 
+          verifier, 
+          video_url: validatedVideo, 
+          description 
+        }
       ]);
 
       if (insertError) {
@@ -536,11 +705,12 @@ function setupForms() {
 
     alert(`Level ${name} successfully placed at #${rank}!`);
     document.getElementById("addLevelForm").reset();
+    document.getElementById("levelMinPct").value = "100";
     await fetchLevelsFromDB();
   });
 }
 
-// Delete Victor (Moderators only)
+// Delete Victor (Moderator only)
 async function deleteVictor(victorId) {
   if (!currentModerator) {
     alert("Unauthorized.");
@@ -557,7 +727,7 @@ async function deleteVictor(victorId) {
   }
 }
 
-// Populate Admin dropdown
+// Populate Admin level selector
 function populateAdminDropdown() {
   const select = document.getElementById("victorLevelSelect");
   if (!select) return;
@@ -566,7 +736,7 @@ function populateAdminDropdown() {
   `).join("");
 }
 
-// Navigation Tab switcher
+// Navigation Tabs
 function setupNavigation() {
   document.querySelectorAll(".nav-btn").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -632,7 +802,6 @@ function setupAuth() {
     errorEl.textContent = "";
   };
 
-  // Sign In submit
   loginForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const username = document.getElementById("loginUsername").value.trim();
@@ -661,14 +830,13 @@ function setupAuth() {
     renderList();
   });
 
-  // Sign Up submit
   signupForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const username = document.getElementById("signupUsername").value.trim();
     const password = document.getElementById("signupPassword").value;
 
     if (!isValidUsername(username)) {
-      errorEl.textContent = "Usernames must be 3-20 characters long and contain only alphanumeric characters or underscores.";
+      errorEl.textContent = "Usernames must be 3-20 characters long and contain only letters, numbers, or underscores.";
       return;
     }
 
@@ -680,7 +848,8 @@ function setupAuth() {
       password: password,
       options: {
         data: {
-          player_name: username
+          player_name: username,
+          bio: ""
         }
       }
     });
