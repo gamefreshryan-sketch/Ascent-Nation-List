@@ -26,6 +26,8 @@ body {
   min-height: 100vh;
 }
 
+.text-muted { color: var(--text-muted); }
+
 /* NAVBAR */
 .navbar {
   display: flex;
@@ -63,6 +65,7 @@ body {
 .nav-links {
   display: flex;
   gap: 8px;
+  align-items: center;
 }
 
 .nav-btn {
@@ -150,7 +153,7 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
-.search-box input, .admin-card input, .admin-card select, .admin-card textarea, .modal-content input {
+.search-box input, .admin-card input, .admin-card select, .admin-card textarea, .modal-content input, .update-name-form input {
   width: 100%;
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -226,7 +229,7 @@ body {
 
 .video-wrapper {
   position: relative;
-  padding-bottom: 56.25%; /* 16:9 standard */
+  padding-bottom: 56.25%;
   height: 0;
   overflow: hidden;
   border-radius: 8px;
@@ -248,7 +251,7 @@ body {
 
 .stat-card {
   background: var(--bg-card);
-  padding: 14px;
+  padding: 16px;
   border-radius: 8px;
   border: 1px solid var(--border);
 }
@@ -261,7 +264,7 @@ body {
   margin-bottom: 4px;
 }
 
-.stat-card strong { font-size: 1.05rem; }
+.stat-card strong { font-size: 1.15rem; }
 
 /* VICTORS LIST */
 .victors-card {
@@ -290,6 +293,111 @@ body {
   cursor: pointer;
   margin-left: 12px;
   font-weight: bold;
+}
+
+/* PROFILE VIEW */
+.profile-wrapper {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.profile-header-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.profile-main-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.avatar-circle {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #0284c7, #38bdf8);
+  color: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.6rem;
+  font-weight: 800;
+  font-family: var(--font-heading);
+}
+
+.profile-rank-badge {
+  text-align: right;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  padding: 10px 18px;
+  border-radius: 8px;
+}
+
+.profile-rank-badge .badge-label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.profile-rank-badge strong {
+  font-size: 1.5rem;
+  color: var(--accent);
+  font-family: var(--font-heading);
+}
+
+.profile-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.profile-records-card, .profile-settings-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.profile-records-card h3, .profile-settings-card h3 {
+  font-family: var(--font-heading);
+  font-size: 1.1rem;
+  margin-bottom: 12px;
+}
+
+.profile-level-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.profile-level-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.95rem;
+}
+
+.profile-level-row a { color: var(--accent); text-decoration: none; }
+.profile-level-row a:hover { text-decoration: underline; }
+
+.update-name-form {
+  display: flex;
+  gap: 12px;
+}
+
+.update-name-form input {
+  margin-bottom: 0;
+  max-width: 320px;
 }
 
 /* LEADERBOARD & RULES */
@@ -363,7 +471,7 @@ body {
 
 .submit-btn:hover { opacity: 0.9; }
 
-/* MODAL */
+/* AUTH MODAL & TABS */
 .modal {
   display: none;
   position: fixed;
@@ -382,8 +490,33 @@ body {
   padding: 24px;
   border-radius: 12px;
   width: 100%;
-  max-width: 400px;
+  max-width: 420px;
   position: relative;
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+
+.auth-tab-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-family: var(--font-heading);
+}
+
+.auth-tab-btn.active {
+  color: var(--accent);
+  background: var(--bg-card);
 }
 
 .close-btn {
@@ -402,5 +535,7 @@ body {
 }
 
 @media(max-width: 860px) {
-  .list-layout, .admin-grid { grid-template-columns: 1fr; height: auto; }
+  .list-layout, .admin-grid, .profile-stats-grid { grid-template-columns: 1fr; height: auto; }
+  .update-name-form { flex-direction: column; }
+  .update-name-form input { max-width: 100%; }
 }

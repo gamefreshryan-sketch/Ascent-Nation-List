@@ -6,7 +6,7 @@
   <title>Ascent Nation List (ANL)</title>
   <link rel="stylesheet" href="style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
   <!-- Supabase CDN Client -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
@@ -23,14 +23,16 @@
       <button class="nav-btn" data-tab="extended">Extended (51+)</button>
       <button class="nav-btn" data-tab="leaderboard">Leaderboard</button>
       <button class="nav-btn" data-tab="rules">Rules & Info</button>
-      <!-- Moderator-only Tab (Hidden by default) -->
+      <!-- Logged-in User Profile Tab -->
+      <button class="nav-btn user-only" id="profileTabBtn" data-tab="profile" style="display: none;">👤 My Profile</button>
+      <!-- Moderator Tab -->
       <button class="nav-btn mod-only" id="adminTabBtn" data-tab="admin" style="display: none;">⚙️ Admin Panel</button>
     </nav>
     <div class="nav-actions">
       <a id="discordLink" target="_blank" rel="noopener noreferrer" class="social-btn discord">Discord</a>
       <a id="ytLink" target="_blank" rel="noopener noreferrer" class="social-btn youtube">YouTube</a>
       <!-- Auth Button -->
-      <button id="authBtn" class="auth-btn">Mod Login</button>
+      <button id="authBtn" class="auth-btn">Sign In / Register</button>
     </div>
   </header>
 
@@ -102,6 +104,68 @@
       </div>
     </section>
 
+    <!-- VIEW: USER PROFILE (LOGGED IN USERS) -->
+    <section id="profileView" class="tab-content">
+      <div class="profile-wrapper">
+        <div class="profile-header-card">
+          <div class="profile-main-info">
+            <div class="avatar-circle" id="profileAvatar">?</div>
+            <div>
+              <h2 id="profilePlayerName">Player Name</h2>
+              <p id="profileEmail" class="text-muted">user@example.com</p>
+            </div>
+          </div>
+          <div class="profile-rank-badge" id="profileRankBadge">
+            <span class="badge-label">Rank</span>
+            <strong id="profileRankText">#--</strong>
+          </div>
+        </div>
+
+        <!-- STATS COUNTERS -->
+        <div class="profile-stats-grid">
+          <div class="stat-card">
+            <span>Total Points</span>
+            <strong id="profileTotalPoints" style="color: var(--accent);">0.00 pts</strong>
+          </div>
+          <div class="stat-card">
+            <span>Completions</span>
+            <strong id="profileCompletions">0</strong>
+          </div>
+          <div class="stat-card">
+            <span>Verifications</span>
+            <strong id="profileVerifications">0</strong>
+          </div>
+        </div>
+
+        <!-- COMPLETIONS & VERIFICATIONS TABLES -->
+        <div class="profile-records-card">
+          <h3>My Completed Levels</h3>
+          <div id="profileCompletedList" class="profile-level-list">
+            <p class="text-muted">No completions recorded yet.</p>
+          </div>
+        </div>
+
+        <div class="profile-records-card" style="margin-top: 20px;">
+          <h3>My Verified Levels</h3>
+          <div id="profileVerifiedList" class="profile-level-list">
+            <p class="text-muted">No verified levels.</p>
+          </div>
+        </div>
+
+        <!-- ACCOUNT SETTINGS -->
+        <div class="profile-settings-card">
+          <h3>In-Game Name Settings</h3>
+          <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 12px;">
+            Set this to the exact name listed on your submissions to automatically link your points and records.
+          </p>
+          <form id="updateNameForm" class="update-name-form">
+            <input type="text" id="updatePlayerNameInput" placeholder="New Player Name" required>
+            <button type="submit" class="submit-btn" style="width: auto; padding: 10px 20px;">Save Name</button>
+          </form>
+        </div>
+      </div>
+    </section>
+
     <!-- VIEW: ADMIN DASHBOARD (MODERATORS ONLY) -->
     <section id="adminView" class="tab-content">
       <div class="admin-wrapper">
@@ -162,14 +226,19 @@
 
   </main>
 
-  <!-- AUTH / LOGIN MODAL -->
+  <!-- AUTH MODAL (LOGIN & SIGN UP TABS) -->
   <div id="authModal" class="modal">
     <div class="modal-content">
       <span class="close-btn" id="closeAuthModal">&times;</span>
-      <h3>Moderator Login</h3>
-      <p style="font-size:0.85rem; color: var(--text-muted); margin-bottom: 16px;">Only authorized list moderators can log in.</p>
+      
+      <div class="auth-tabs">
+        <button type="button" class="auth-tab-btn active" id="tabLoginBtn">Sign In</button>
+        <button type="button" class="auth-tab-btn" id="tabSignupBtn">Register</button>
+      </div>
+
+      <!-- FORM: SIGN IN -->
       <form id="loginForm">
-        <label>Moderator Email</label>
+        <label>Email Address</label>
         <input type="email" id="loginEmail" required autocomplete="username">
         
         <label>Password</label>
@@ -177,7 +246,22 @@
 
         <button type="submit" class="submit-btn" style="margin-top: 12px;">Sign In</button>
       </form>
-      <div id="loginError" class="login-error"></div>
+
+      <!-- FORM: SIGN UP -->
+      <form id="signupForm" style="display: none;">
+        <label>In-Game / Player Name</label>
+        <input type="text" id="signupPlayerName" placeholder="e.g. Ascent" required>
+
+        <label>Email Address</label>
+        <input type="email" id="signupEmail" required autocomplete="username">
+        
+        <label>Create Password</label>
+        <input type="password" id="signupPassword" minlength="6" placeholder="At least 6 characters" required autocomplete="new-password">
+
+        <button type="submit" class="submit-btn" style="margin-top: 12px;">Create Account</button>
+      </form>
+
+      <div id="authError" class="login-error"></div>
     </div>
   </div>
 
