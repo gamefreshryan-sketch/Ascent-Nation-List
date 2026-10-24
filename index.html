@@ -29,11 +29,16 @@
       <button class="nav-btn mod-only" id="adminTabBtn" data-tab="admin" style="display: none;">⚙️ Admin Panel</button>
     </nav>
     <div class="nav-actions">
+      <!-- Submit Record Button for authenticated players -->
+      <button id="openSubmitModalBtn" class="submit-action-btn" style="display: none;">+ Submit Record</button>
       <a id="discordLink" target="_blank" rel="noopener noreferrer" class="social-btn discord">Discord</a>
       <a id="ytLink" target="_blank" rel="noopener noreferrer" class="social-btn youtube">YouTube</a>
       <button id="authBtn" class="auth-btn">Sign In / Register</button>
     </div>
   </header>
+
+  <!-- BAN WARNING BANNER (Shown if current profile has restrictions) -->
+  <div id="accountBanner" class="system-alert-banner" style="display: none;"></div>
 
   <!-- MAIN CONTAINER -->
   <main class="container">
@@ -85,24 +90,13 @@
         <h2>What is ANL?</h2>
         <p><strong>ANL (Ascent Nation List)</strong> is a list of the hardest levels created and verified by members of the Ascent Nation community.</p>
         <hr>
-        <h2>Points & Percentages System</h2>
+        <h2>Submission Guidelines & Rules</h2>
         <ul>
-          <li><strong>Main List (#1 - #50):</strong> Levels reward points. Rank #1 awards a maximum base of <strong>350.00 pts</strong>.</li>
-          <li><strong>Extended List (#51+):</strong> Records are documented and accepted, but award <strong>0.00 pts</strong>.</li>
-          <li><strong>List Requirement %:</strong> Levels can specify a minimum qualifying percentage (e.g., 60%). Qualifying progress records award between <strong>10% and 50%</strong> of the level's point value depending on progress.</li>
-          <li><strong>Full Completions (100%):</strong> Award <strong>100%</strong> of the level's points.</li>
-          <li><strong>Verifier Bonus:</strong> Verifiers receive base placement points <strong>PLUS a 20% bonus</strong>!</li>
+          <li><strong>Queue Limit:</strong> Players can have a maximum of <strong>3 submissions on hold</strong> at any given time to avoid spam.</li>
+          <li><strong>Queue Position:</strong> Submissions are processed on a <strong>First-In, First-Out (FIFO)</strong> basis. Your queue position indicates how many submissions are in front of yours.</li>
+          <li><strong>Verification & Completions:</strong> Both verifications and progress runs (&ge; list req) must be accompanied by raw unedited footage and audible clicks/taps.</li>
+          <li><strong>Denial Policy:</strong> Submissions rejected for hacking, missing clicks, or abusive material can result in submit restrictions (1 day to 1 month) or full list bans.</li>
         </ul>
-        <hr>
-        <h2>Rules for Level Submissions</h2>
-        <ol>
-          <li>Must be at least <strong>25 seconds</strong> long.</li>
-          <li>No automated levels (No Auto Retray).</li>
-          <li>Offensive or abusive levels result in an instant ban.</li>
-          <li>Stolen or copied levels are strictly forbidden.</li>
-          <li>Proof of legitimacy is required (clicks/taps, full raw unedited footage).</li>
-          <li>NONG songs are allowed if they don't contain heavily sensitive audio.</li>
-        </ol>
       </div>
     </section>
 
@@ -114,13 +108,26 @@
           <button id="viewMyProfileBtn" class="profile-nav-back-btn">⬅ Return to My Profile</button>
         </div>
 
+        <!-- MODERATION TOOLBAR (ONLY SHOWN TO MODERATORS WHEN VIEWING A PROFILE) -->
+        <div id="profileModActionsCard" class="profile-mod-bar" style="display: none;">
+          <span class="mod-action-label">🛡️ Moderator Controls:</span>
+          <button id="profilePunishBtn" class="mod-btn-warning">⏱️ Restrict Submissions</button>
+          <button id="profileBanBtn" class="mod-btn-danger">⛔ Ban Account</button>
+          <button id="profileUnbanBtn" class="mod-btn-success" style="display: none;">✅ Unban Account</button>
+        </div>
+
         <div class="profile-header-card">
           <div class="profile-main-info">
             <div class="avatar-circle" id="profileAvatar">?</div>
             <div>
-              <h2 id="profilePlayerName">Player</h2>
-              <span class="user-badge" id="profileBadge">Player</span>
+              <div class="name-badge-row">
+                <h2 id="profilePlayerName">Player</h2>
+                <span class="user-badge" id="profileBadge">Player</span>
+                <span id="profileBannedBadge" class="status-badge badge-banned" style="display: none;">BANNED</span>
+                <span id="profileTimeoutBadge" class="status-badge badge-timeout" style="display: none;">TIMED OUT</span>
+              </div>
               <p class="profile-bio-text" id="profileBioDisplay">No bio set.</p>
+              <div id="profileBanNotice" class="ban-notice-box" style="display: none;"></div>
             </div>
           </div>
           <div class="profile-rank-badge">
@@ -146,6 +153,18 @@
           <div class="stat-card">
             <span>Verifications</span>
             <strong id="profileVerifications">0</strong>
+          </div>
+        </div>
+
+        <!-- PRIVATE SUBMISSIONS QUEUE (VISIBLE ONLY TO PROFILE OWNER & MODERATORS) -->
+        <div class="profile-records-card" id="userSubmissionsCard" style="display: none; margin-bottom: 20px;">
+          <div class="card-header-flex">
+            <h3>🔒 My Submissions & Queue Position</h3>
+            <span class="badge-pill" id="userPendingCountBadge">0 / 3 Active</span>
+          </div>
+          <p class="section-subtext">Submissions are reviewed in FIFO order (oldest to newest). Track your queue status and reviewer feedback below.</p>
+          <div id="userSubmissionsList" class="profile-level-list">
+            <p class="text-muted">No submissions found.</p>
           </div>
         </div>
 
@@ -182,13 +201,6 @@
           </form>
         </div>
 
-        <!-- SECURITY NOTICE -->
-        <div class="profile-security-notice" style="margin-top: 20px;">
-          <p class="text-muted" style="font-size: 0.85rem;">
-            🔒 <strong>Display Name Security:</strong> Self-service name changes are disabled to protect players against score spoofing and account collisions. To request an official name update, contact an Ascent Nation moderator.
-          </p>
-        </div>
-
       </div>
     </section>
 
@@ -196,14 +208,83 @@
     <section id="adminView" class="tab-content">
       <div class="admin-wrapper">
         <div class="admin-header">
-          <h2>Moderator Command Center</h2>
+          <div>
+            <h2>Moderator Command Center</h2>
+            <p class="text-muted">Process pending records, maintain list accuracy, and monitor moderation logs.</p>
+          </div>
           <span class="mod-badge">Authenticated Moderator</span>
         </div>
 
-        <div class="admin-grid">
-          <!-- CARD 1: ADD RECORD / VICTOR -->
+        <!-- ADMIN SUB-TABS -->
+        <div class="admin-subnav">
+          <button class="admin-subtab-btn active" data-subtab="modQueue">📥 Submissions Queue (<span id="modQueueCount">0</span>)</button>
+          <button class="admin-subtab-btn" data-subtab="modLogs">📜 Action Logs Channel</button>
+          <button class="admin-subtab-btn" data-subtab="modAddRecord">➕ Direct Victor</button>
+          <button class="admin-subtab-btn" data-subtab="modAddLevel">📐 Add New Level</button>
+        </div>
+
+        <!-- SUB-TAB 1: SUBMISSIONS QUEUE -->
+        <div id="modQueueTab" class="admin-subcontent active">
+          <!-- QUEUE CONTROLS -->
+          <div class="queue-toolbar">
+            <div class="queue-filter-group">
+              <label>Status:</label>
+              <select id="queueFilterStatus">
+                <option value="pending">Pending (Queue Active)</option>
+                <option value="accepted">Accepted</option>
+                <option value="rejected">Rejected</option>
+                <option value="all">All Submissions</option>
+              </select>
+
+              <label>Type:</label>
+              <select id="queueFilterType">
+                <option value="all">All Types</option>
+                <option value="verification">Verification</option>
+                <option value="completion">Completion / Progress</option>
+              </select>
+
+              <label>Sort Order:</label>
+              <select id="queueSortOrder">
+                <option value="oldest">Oldest First (FIFO - Recommended)</option>
+                <option value="newest">Newest First</option>
+              </select>
+            </div>
+            <button id="refreshQueueBtn" class="refresh-btn">🔄 Refresh Queue</button>
+          </div>
+
+          <div id="submissionsQueueContainer" class="submissions-queue-list">
+            <div class="loading">Loading submissions queue...</div>
+          </div>
+        </div>
+
+        <!-- SUB-TAB 2: MODERATOR ACTION LOGS -->
+        <div id="modLogsTab" class="admin-subcontent">
+          <div class="panel-header-inline">
+            <h3>Moderator Audit Log Channel</h3>
+            <button id="refreshLogsBtn" class="refresh-btn">🔄 Refresh Logs</button>
+          </div>
+          <p class="text-muted" style="margin-bottom: 12px; font-size: 0.85rem;">All actions taken by moderators are permanently logged below for transparency and accountability.</p>
+          
+          <table class="logs-table">
+            <thead>
+              <tr>
+                <th>Date / Time</th>
+                <th>Moderator</th>
+                <th>Action</th>
+                <th>Target</th>
+                <th>Details / Reason</th>
+              </tr>
+            </thead>
+            <tbody id="modLogsBody">
+              <tr><td colspan="5" class="loading">Loading logs...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- SUB-TAB 3: DIRECT ADD VICTOR -->
+        <div id="modAddRecordTab" class="admin-subcontent">
           <div class="admin-card">
-            <h3>Add Approved Record</h3>
+            <h3>Add Approved Record Directly</h3>
             <form id="addVictorForm">
               <label for="victorLevelSelect">Select Level</label>
               <select id="victorLevelSelect" required></select>
@@ -223,8 +304,10 @@
               <button type="submit" class="submit-btn">Save Record</button>
             </form>
           </div>
+        </div>
 
-          <!-- CARD 2: ADD NEW LEVEL -->
+        <!-- SUB-TAB 4: ADD LEVEL -->
+        <div id="modAddLevelTab" class="admin-subcontent">
           <div class="admin-card">
             <h3>Place New Level on ANL</h3>
             <form id="addLevelForm">
@@ -256,10 +339,133 @@
             </form>
           </div>
         </div>
+
       </div>
     </section>
 
   </main>
+
+  <!-- MODAL: USER SUBMISSION FORM -->
+  <div id="submitRecordModal" class="modal">
+    <div class="modal-content modal-large">
+      <span class="close-btn" id="closeSubmitModal">&times;</span>
+      <h2>Submit Record to ANL</h2>
+      <p class="text-muted" style="margin-bottom: 16px;">Submissions are queued for moderator review. You may have at most <strong>3 active pending submissions</strong> at one time.</p>
+      
+      <form id="submitRecordForm">
+        <label for="submissionType">Submission Type</label>
+        <select id="submissionType" required>
+          <option value="completion">Completion / Progress Record</option>
+          <option value="verification">Verification</option>
+        </select>
+
+        <label for="submissionLevelSelect">Select Level</label>
+        <select id="submissionLevelSelect" required></select>
+
+        <label for="submissionPercentage">Percentage Achieved (%)</label>
+        <input type="number" id="submissionPercentage" min="1" max="100" value="100" required>
+
+        <label for="submissionProofUrl">Proof Video URL (Must have clicks/taps)</label>
+        <input type="url" id="submissionProofUrl" placeholder="https://youtube.com/watch?v=..." required>
+
+        <label for="submissionRawUrl">Raw Unedited Footage Link (Google Drive, Twitch VOD, unlisted YT, etc.)</label>
+        <input type="url" id="submissionRawUrl" placeholder="https://...">
+
+        <label for="submissionDevice">Device / Refresh Rate</label>
+        <input type="text" id="submissionDevice" placeholder="e.g. PC 240Hz, iPad 120Hz" required maxlength="40">
+
+        <label for="submissionNotes">Comments / CPS / Extra Details</label>
+        <textarea id="submissionNotes" rows="2" placeholder="Optional notes for list moderators..." maxlength="250"></textarea>
+
+        <button type="submit" class="submit-btn" id="submitRecordBtn" style="margin-top: 10px;">Send for Review</button>
+      </form>
+      <div id="submissionError" class="login-error"></div>
+    </div>
+  </div>
+
+  <!-- MODAL: DENY SUBMISSION (MODERATOR ONLY) -->
+  <div id="denyModal" class="modal">
+    <div class="modal-content">
+      <span class="close-btn" id="closeDenyModal">&times;</span>
+      <h3 style="color: var(--danger);">Deny Submission</h3>
+      <p class="text-muted" style="margin-bottom: 12px; font-size: 0.85rem;">Select an official reason for rejection. This reason will be permanently visible to the player.</p>
+
+      <form id="denyForm">
+        <input type="hidden" id="denySubmissionId">
+        
+        <label for="denyPresetSelect">Rejection Preset</label>
+        <select id="denyPresetSelect" required>
+          <option value="Hacking / Illegitimate completion">Hacking / Illegitimate run detected</option>
+          <option value="No audible click or tap sounds">No audible click or tap sounds in video</option>
+          <option value="Full raw unedited footage missing or private">Full raw unedited footage missing or private</option>
+          <option value="Inappropriate thumbnail, title, or video content">Inappropriate thumbnail, title, or video metadata</option>
+          <option value="Progress achieved is below list requirement">Progress is below level minimum requirement</option>
+          <option value="Invalid, broken, or private video link">Invalid, broken, or private video URL</option>
+          <option value="Level physics / secret way / illegitimate copy">Modified level physics / illegitimate copy</option>
+          <option value="CUSTOM">Other / Custom Reason...</option>
+        </select>
+
+        <label for="denyReasonDetail">Detailed Explanation (Mandatory)</label>
+        <textarea id="denyReasonDetail" rows="3" required placeholder="Explain why this record cannot be accepted..."></textarea>
+
+        <button type="submit" class="submit-btn" style="background: var(--danger); color: #fff; margin-top: 10px;">Confirm Rejection</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: PUNISH / TIMEOUT SUBMISSIONS -->
+  <div id="punishModal" class="modal">
+    <div class="modal-content">
+      <span class="close-btn" id="closePunishModal">&times;</span>
+      <h3 style="color: var(--accent-gold);">Restrict User Submissions</h3>
+      <p class="text-muted" style="margin-bottom: 12px; font-size: 0.85rem;">Prevent <strong id="punishTargetUsername"></strong> from submitting new verifications and completions for a chosen duration.</p>
+
+      <form id="punishForm">
+        <input type="hidden" id="punishTargetUserId">
+        <input type="hidden" id="punishTargetName">
+
+        <label for="punishDuration">Timeout Duration</label>
+        <select id="punishDuration" required>
+          <option value="1_day">1 Day</option>
+          <option value="3_days">3 Days</option>
+          <option value="7_days">7 Days</option>
+          <option value="1_month">1 Month</option>
+          <option value="forever">Forever (Permanent Timeout)</option>
+        </select>
+
+        <label for="punishReason">Reason for Timeout</label>
+        <textarea id="punishReason" rows="2" required placeholder="e.g. Submitting fake runs, spamming broken links..."></textarea>
+
+        <button type="submit" class="submit-btn" style="background: var(--accent-gold); color: #000; margin-top: 10px;">Apply Submission Restriction</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: ACCOUNT BAN (MODERATOR ONLY) -->
+  <div id="banModal" class="modal">
+    <div class="modal-content">
+      <span class="close-btn" id="closeBanModal">&times;</span>
+      <h3 style="color: var(--danger);">Ban Player Account</h3>
+      <p class="text-muted" style="margin-bottom: 12px; font-size: 0.85rem;">
+        Banning <strong id="banTargetUsername"></strong> blocks them from logging in and submitting. <strong>Note:</strong> The account is preserved to safeguard against false bans.
+      </p>
+
+      <form id="banForm">
+        <input type="hidden" id="banTargetUserId">
+        <input type="hidden" id="banTargetName">
+
+        <label for="banReason">Reason for Ban (Player will see this on login)</label>
+        <textarea id="banReason" rows="3" required placeholder="e.g. Malicious hacking, severe list integrity violation..."></textarea>
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="banWipeRecordsCheckbox" checked>
+          <label for="banWipeRecordsCheckbox">Remove all completions & verifications belonging to this player</label>
+        </div>
+
+        <button type="submit" class="submit-btn" style="background: var(--danger); color: #fff; margin-top: 14px;">Execute Account Ban</button>
+      </form>
+    </div>
+  </div>
 
   <!-- AUTH MODAL -->
   <div id="authModal" class="modal">
