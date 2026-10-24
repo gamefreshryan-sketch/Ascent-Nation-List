@@ -3,6 +3,21 @@ let currentTab = "main";
 let selectedLevelId = null;
 let currentModerator = null;
 
+// Helper: Convert standard YouTube / youtu.be links into iframe-compatible embed URLs
+function getYouTubeEmbedUrl(url) {
+  if (!url) return '';
+  const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
+  return match ? `https://www.youtube.com/embed/${match[1]}` : url;
+}
+
+// Helper: Escape HTML to avoid XSS
+function escapeHtml(val) {
+  if (val === null || val === undefined) return '';
+  return String(val).replace(/[&<>'"]/g, tag => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+  }[tag] || tag));
+}
+
 // Points formula (Top 1 = 350, Top 25 = 55, Top 50 = min, 51+ = 0)
 function calculatePoints(rank) {
   if (rank > SETTINGS.mainListCutoff) return 0;
@@ -24,7 +39,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   await fetchLevelsFromDB();
 });
 
-// Check if a moderator is already logged in
+// Check if a moderator session already exists
 async function checkAuthSession() {
   const { data: { session } } = await supabaseClient.auth.getSession();
   if (session) {
@@ -32,7 +47,7 @@ async function checkAuthSession() {
       .from('moderators')
       .select('*')
       .eq('user_id', session.user.id)
-      .single();
+      .maybeSingle();
 
     if (mod) {
       setModeratorState(session.user);
@@ -42,7 +57,9 @@ async function checkAuthSession() {
 
 function setModeratorState(user) {
   currentModerator = user;
-  document.getElementById("adminTabBtn").style.display = "block";
+  const adminBtn = document.getElementById("adminTabBtn");
+  if (adminBtn) adminBtn.style.display = "inline-block";
+
   const authBtn = document.getElementById("authBtn");
   authBtn.textContent = "Logout";
   authBtn.onclick = async () => {
@@ -63,34 +80,55 @@ async function fetchLevelsFromDB() {
 
   if (error) {
     console.error("Error fetching levels:", error);
+    document.getElementById("levelList").innerHTML = `
+      <div style="padding: 20px; color: var(--danger);">
+        Failed to load levels: ${escapeHtml(error.message)}
+      </div>`;
     return;
   }
 
-  currentLevels = data;
+  currentLevels = data || [];
   renderList();
   renderLeaderboard();
   populateAdminDropdown();
 }
 
-// Render Level List
+// Render Level List (handles filtering and search simultaneously)
 function renderList() {
   const listContainer = document.getElementById("levelList");
   listContainer.innerHTML = "";
 
+  const query = (document.getElementById("searchInput")?.value || "").toLowerCase().trim();
   const isMain = currentTab === "main";
-  const filtered = currentLevels.filter(lvl => 
+
+  let filtered = currentLevels.filter(lvl => 
     isMain ? lvl.rank <= SETTINGS.mainListCutoff : lvl.rank > SETTINGS.mainListCutoff
   );
 
+  if (query) {
+    filtered = filtered.filter(lvl =>
+      lvl.name.toLowerCase().includes(query) ||
+      lvl.creator.toLowerCase().includes(query) ||
+      lvl.verifier.toLowerCase().includes(query)
+    );
+  }
+
   if (filtered.length === 0) {
-    listContainer.innerHTML = `<div style="padding: 20px; color: var(--text-muted);">No levels in this section.</div>`;
-    document.getElementById("levelDetails").innerHTML = "";
+    listContainer.innerHTML = `<div style="padding: 20px; color: var(--text-muted);">No levels found.</div>`;
+    document.getElementById("levelDetails").innerHTML = `<div class="loading">No level selected.</div>`;
     return;
   }
 
-  filtered.forEach((level, i) => {
+  // Ensure an item in the filtered list is selected
+  let selected = filtered.find(l => l.id === selectedLevelId);
+  if (!selected) {
+    selected = filtered[0];
+    selectedLevelId = selected.id;
+  }
+
+  filtered.forEach((level) => {
     const item = document.createElement("div");
-    item.className = `level-item ${level.id === selectedLevelId || (!selectedLevelId && i === 0) ? "active" : ""}`;
+    item.className = `level-item ${level.id === selectedLevelId ? "active" : ""}`;
     item.innerHTML = `
       <div class="item-rank">#${level.rank}</div>
       <div class="item-info">
@@ -102,25 +140,26 @@ function renderList() {
     item.addEventListener("click", () => {
       selectedLevelId = level.id;
       renderList();
-      renderLevelDetails(level);
     });
 
     listContainer.appendChild(item);
   });
 
-  const selected = filtered.find(l => l.id === selectedLevelId) || filtered[0];
-  if (selected) {
-    selectedLevelId = selected.id;
-    renderLevelDetails(selected);
-  }
+  renderLevelDetails(selected);
 }
 
 // Render Level Details
 function renderLevelDetails(level) {
   const container = document.getElementById("levelDetails");
+  if (!level) {
+    container.innerHTML = `<div class="loading">Select a level...</div>`;
+    return;
+  }
+
   const points = calculatePoints(level.rank);
   const verifierBonus = (points * SETTINGS.verifierBonusPct).toFixed(2);
   const totalVerifierPts = (points * (1 + SETTINGS.verifierBonusPct)).toFixed(2);
+  const embedUrl = getYouTubeEmbedUrl(level.video_url);
 
   container.innerHTML = `
     <div class="level-header">
@@ -134,7 +173,7 @@ function renderLevelDetails(level) {
     </div>
 
     <div class="video-wrapper">
-      <iframe src="${level.video_url || ''}" allowfullscreen></iframe>
+      ${embedUrl ? `<iframe src="${embedUrl}" allowfullscreen></iframe>` : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);">No video available</div>`}
     </div>
 
     <div class="stats-grid">
@@ -159,8 +198,8 @@ function renderLevelDetails(level) {
           <div class="victor-row">
             <span><strong>${escapeHtml(v.player_name)}</strong> (${escapeHtml(v.device || 'PC')})</span>
             <div>
-              <a href="${v.proof_url}" target="_blank">Proof</a>
-              ${currentModerator ? `<button class="delete-victor-btn" onclick="deleteVictor(${v.id})">✕ Delete</button>` : ''}
+              <a href="${escapeHtml(v.proof_url)}" target="_blank" rel="noopener noreferrer">Proof</a>
+              ${currentModerator ? `<button class="delete-victor-btn" onclick="deleteVictor('${v.id}')">✕ Delete</button>` : ''}
             </div>
           </div>
         `).join("") : `<p style="color: var(--text-muted); padding: 8px 0;">No victors yet.</p>`}
@@ -224,7 +263,7 @@ function setupForms() {
     const device = document.getElementById("victorDevice").value.trim();
 
     const { error } = await supabaseClient.from('victors').insert([
-      { level_id: levelId, player_name: playerName, proof_url: proofUrl, device: device }
+      { level_id: levelId, player_name: playerName, proof_url: proofUrl, device: device, percentage: 100 }
     ]);
 
     if (error) {
@@ -239,7 +278,7 @@ function setupForms() {
   // Add Level Form
   document.getElementById("addLevelForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const rank = parseInt(document.getElementById("levelRank").value);
+    const rank = parseInt(document.getElementById("levelRank").value, 10);
     const name = document.getElementById("levelName").value.trim();
     const creator = document.getElementById("levelCreator").value.trim();
     const verifier = document.getElementById("levelVerifier").value.trim();
@@ -261,7 +300,7 @@ function setupForms() {
 }
 
 // Delete a Victor (Moderators only)
-async function deleteVictor(victorId) {
+window.deleteVictor = async function(victorId) {
   if (!confirm("Are you sure you want to remove this record?")) return;
 
   const { error } = await supabaseClient.from('victors').delete().eq('id', victorId);
@@ -270,7 +309,7 @@ async function deleteVictor(victorId) {
   } else {
     await fetchLevelsFromDB();
   }
-}
+};
 
 // Populate Level Dropdown for the Admin form
 function populateAdminDropdown() {
@@ -307,14 +346,11 @@ function setupNavigation() {
   });
 }
 
-// Search Filter
+// Search Filter (triggers full re-render smoothly)
 function setupSearch() {
   const input = document.getElementById("searchInput");
-  input.addEventListener("input", (e) => {
-    const q = e.target.value.toLowerCase();
-    document.querySelectorAll(".level-item").forEach(item => {
-      item.style.display = item.innerText.toLowerCase().includes(q) ? "flex" : "none";
-    });
+  input.addEventListener("input", () => {
+    renderList();
   });
 }
 
@@ -332,7 +368,7 @@ function setupAuth() {
 
   document.getElementById("loginForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const email = document.getElementById("loginEmail").value;
+    const email = document.getElementById("loginEmail").value.trim();
     const password = document.getElementById("loginPassword").value;
     const errorEl = document.getElementById("loginError");
 
@@ -349,7 +385,7 @@ function setupAuth() {
       .from('moderators')
       .select('*')
       .eq('user_id', data.user.id)
-      .single();
+      .maybeSingle();
 
     if (!mod) {
       errorEl.textContent = "Account verified, but you lack moderator permissions.";
@@ -361,11 +397,4 @@ function setupAuth() {
     setModeratorState(data.user);
     renderList(); // Re-render to show delete buttons
   });
-}
-
-function escapeHtml(str) {
-  if (!str) return '';
-  return str.replace(/[&<>'"]/g, tag => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
-  }[tag] || tag));
 }

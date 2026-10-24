@@ -99,6 +99,7 @@ body {
   padding: 6px 14px;
   border-radius: 6px;
   transition: 0.2s;
+  cursor: pointer;
 }
 
 .social-btn.discord { background: #5865F2; color: #fff; }
@@ -225,7 +226,7 @@ body {
 
 .video-wrapper {
   position: relative;
-  padding-bottom: 45%;
+  padding-bottom: 56.25%; /* 16:9 standard */
   height: 0;
   overflow: hidden;
   border-radius: 8px;
@@ -394,6 +395,11 @@ body {
 }
 
 .login-error { color: var(--danger); font-size: 0.85rem; margin-top: 10px; }
+
+.loading {
+  padding: 20px;
+  color: var(--text-muted);
+}
 
 @media(max-width: 860px) {
   .list-layout, .admin-grid { grid-template-columns: 1fr; height: auto; }

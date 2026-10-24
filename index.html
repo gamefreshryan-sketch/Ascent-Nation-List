@@ -27,8 +27,8 @@
       <button class="nav-btn mod-only" id="adminTabBtn" data-tab="admin" style="display: none;">⚙️ Admin Panel</button>
     </nav>
     <div class="nav-actions">
-      <a id="discordLink" target="_blank" class="social-btn discord">Discord</a>
-      <a id="ytLink" target="_blank" class="social-btn youtube">YouTube</a>
+      <a id="discordLink" target="_blank" rel="noopener noreferrer" class="social-btn discord">Discord</a>
+      <a id="ytLink" target="_blank" rel="noopener noreferrer" class="social-btn youtube">YouTube</a>
       <!-- Auth Button -->
       <button id="authBtn" class="auth-btn">Mod Login</button>
     </div>
@@ -147,8 +147,8 @@
               <label>Verifier</label>
               <input type="text" id="levelVerifier" placeholder="Verifier name" required>
 
-              <label>Verification Video (YouTube Embed Link)</label>
-              <input type="url" id="levelVideo" placeholder="https://www.youtube.com/embed/..." required>
+              <label>Verification Video URL</label>
+              <input type="url" id="levelVideo" placeholder="https://youtu.be/..." required>
 
               <label>Level Description</label>
               <textarea id="levelDescription" rows="3" placeholder="Brief info about the level..."></textarea>
