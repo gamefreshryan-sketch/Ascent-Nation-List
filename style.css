@@ -9,7 +9,9 @@
   --text-muted: #94a3b8;
   --border: #2d3345;
   --danger: #ef4444;
+  --danger-hover: #dc2626;
   --success: #10b981;
+  --success-hover: #059669;
   --font-heading: 'Montserrat', sans-serif;
   --font-body: 'Inter', sans-serif;
 }
@@ -67,6 +69,7 @@ body {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .nav-btn {
@@ -74,10 +77,13 @@ body {
   border: none;
   color: var(--text-muted);
   font-weight: 600;
-  padding: 8px 16px;
+  padding: 8px 14px;
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .nav-btn:hover {
@@ -88,6 +94,15 @@ body {
 .nav-btn.active {
   background-color: var(--accent);
   color: #000;
+}
+
+.queue-counter {
+  background: var(--danger);
+  color: #fff;
+  border-radius: 999px;
+  padding: 2px 7px;
+  font-size: 0.72rem;
+  font-weight: 800;
 }
 
 .nav-actions {
@@ -158,7 +173,12 @@ body {
 .admin-card input, 
 .admin-card select, 
 .admin-card textarea, 
+.rules-card input,
+.rules-card select,
+.rules-card textarea,
 .modal-content input, 
+.modal-content select, 
+.modal-content textarea, 
 .update-bio-form textarea {
   width: 100%;
   background: var(--bg-card);
@@ -191,7 +211,6 @@ body {
   transition: border-color 0.2s, background-color 0.2s;
 }
 
-/* Background image with subtle default opacity */
 .item-bg-thumb {
   position: absolute;
   top: 0;
@@ -205,7 +224,6 @@ body {
   z-index: 1;
 }
 
-/* Gradient overlay: dark on the left for text readability, clear on the right */
 .item-overlay {
   position: absolute;
   inset: 0;
@@ -220,7 +238,6 @@ body {
   transition: background 0.2s ease;
 }
 
-/* Hover effects */
 .level-item:hover .item-bg-thumb {
   transform: scale(1.06);
   opacity: 0.50;
@@ -235,7 +252,6 @@ body {
   );
 }
 
-/* Active selected card */
 .level-item.active {
   border-left: 4px solid var(--accent);
   background-color: var(--bg-card);
@@ -246,7 +262,6 @@ body {
   transform: scale(1.03);
 }
 
-/* Card Text Layer (sits on top of the image and overlay) */
 .item-content {
   position: relative;
   z-index: 3;
@@ -398,26 +413,111 @@ body {
   color: #7dd3fc;
 }
 
-/* PERCENTAGE BADGES */
-.pct-badge {
+/* PERCENTAGE & STATUS BADGES */
+.pct-badge, .status-badge {
   display: inline-block;
   font-size: 0.75rem;
   font-weight: 700;
   padding: 2px 8px;
   border-radius: 4px;
-  margin-left: 8px;
 }
 
-.pct-badge.pct-100 {
+.pct-badge { margin-left: 8px; }
+
+.pct-badge.pct-100, .status-badge.badge-accepted {
   background: rgba(16, 185, 129, 0.2);
   color: var(--success);
   border: 1px solid var(--success);
 }
 
-.pct-badge.pct-partial {
+.pct-badge.pct-partial, .status-badge.badge-pending {
   background: rgba(245, 158, 11, 0.2);
   color: var(--accent-gold);
   border: 1px solid var(--accent-gold);
+}
+
+.status-badge.badge-rejected {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+
+/* QUEUE CARDS */
+.queue-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.queue-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.queue-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+}
+
+.queue-pos-indicator {
+  background: #38bdf820;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
+.queue-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  font-size: 0.9rem;
+}
+
+.queue-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.btn-approve, .btn-deny, .btn-warn, .btn-danger, .btn-secondary {
+  border: none;
+  font-weight: 700;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: 0.2s;
+  font-size: 0.85rem;
+}
+
+.btn-approve { background: var(--success); color: #000; }
+.btn-approve:hover { background: var(--success-hover); }
+
+.btn-deny { background: var(--danger); color: #fff; }
+.btn-deny:hover { background: var(--danger-hover); }
+
+.btn-warn { background: var(--accent-gold); color: #000; }
+.btn-danger { background: var(--danger); color: #fff; }
+.btn-secondary { background: var(--bg-card); border: 1px solid var(--border); color: var(--text-main); }
+
+.mod-action-buttons {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+  flex-wrap: wrap;
 }
 
 /* VICTORS LIST */
@@ -551,7 +651,7 @@ body {
 }
 
 /* SORT CONTROLS */
-.sort-bar {
+.sort-bar, .queue-sort-controls {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -620,7 +720,7 @@ body {
 .profile-level-row a { color: var(--accent); text-decoration: none; }
 .profile-level-row a:hover { text-decoration: underline; }
 
-/* LEADERBOARD & RULES */
+/* LEADERBOARD & RULES & LOGS */
 .leaderboard-wrapper, .rules-card, .admin-wrapper {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
@@ -635,6 +735,7 @@ body {
   padding: 12px 16px;
   text-align: left;
   border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
 }
 
 .rules-card h2 { color: var(--accent); margin-bottom: 12px; font-family: var(--font-heading); }
@@ -710,7 +811,7 @@ body {
   padding: 24px;
   border-radius: 12px;
   width: 100%;
-  max-width: 400px;
+  max-width: 440px;
   position: relative;
 }
 

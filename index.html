@@ -22,11 +22,13 @@
       <button class="nav-btn active" data-tab="main">Main List (1-50)</button>
       <button class="nav-btn" data-tab="extended">Extended (51+)</button>
       <button class="nav-btn" data-tab="leaderboard">Leaderboard</button>
+      <button class="nav-btn" data-tab="submit">Submit Record</button>
       <button class="nav-btn" data-tab="rules">Rules & Info</button>
-      <!-- Profile Tab -->
       <button class="nav-btn" id="profileTabBtn" data-tab="profile">👤 Player Profile</button>
-      <!-- Moderator Tab -->
+      <!-- Moderator Tabs -->
+      <button class="nav-btn mod-only" id="queueTabBtn" data-tab="queue" style="display: none;">📥 Submissions Queue <span id="queueBadge" class="queue-counter">0</span></button>
       <button class="nav-btn mod-only" id="adminTabBtn" data-tab="admin" style="display: none;">⚙️ Admin Panel</button>
+      <button class="nav-btn mod-only" id="logsTabBtn" data-tab="logs" style="display: none;">📜 Mod Logs</button>
     </nav>
     <div class="nav-actions">
       <a id="discordLink" target="_blank" rel="noopener noreferrer" class="social-btn discord">Discord</a>
@@ -79,6 +81,46 @@
       </div>
     </section>
 
+    <!-- VIEW: SUBMIT RECORD (ON-HOLD SUBMISSION FORM) -->
+    <section id="submitView" class="tab-content">
+      <div class="rules-card" style="max-width: 650px; margin: 0 auto;">
+        <h2>Submit a Record / Verification</h2>
+        <p class="text-muted" style="margin-bottom: 16px;">
+          Submissions are placed on hold in our review queue. You may have at most <strong>3 pending submissions</strong> at a time.
+        </p>
+
+        <div id="submitNoticeBox" style="display: none; padding: 12px; border-radius: 8px; margin-bottom: 16px;"></div>
+
+        <form id="recordSubmissionForm">
+          <label for="subType">Submission Type</label>
+          <select id="subType" required>
+            <option value="completion">Completion / Progress</option>
+            <option value="verification">Verification</option>
+          </select>
+
+          <label for="subLevelSelect">Select Level</label>
+          <select id="subLevelSelect" required></select>
+
+          <label for="subPercentage">Percentage Achieved (%)</label>
+          <input type="number" id="subPercentage" min="1" max="100" value="100" required>
+
+          <label for="subProofUrl">Public Video Proof (YouTube / Twitch link)</label>
+          <input type="url" id="subProofUrl" placeholder="https://youtu.be/..." required>
+
+          <label for="subRawUrl">Raw Unedited Footage / Google Drive (Optional but recommended)</label>
+          <input type="url" id="subRawUrl" placeholder="https://drive.google.com/...">
+
+          <label for="subDevice">Device / Refresh Rate</label>
+          <input type="text" id="subDevice" placeholder="e.g. PC 240Hz, Mobile 120Hz" required maxlength="30">
+
+          <label for="subNotes">Additional Notes / Comments for Reviewers</label>
+          <textarea id="subNotes" rows="2" placeholder="e.g. Clicks start at 0:24..." maxlength="300"></textarea>
+
+          <button type="submit" id="submitRecordBtn" class="submit-btn" style="margin-top: 10px;">Send Submission to Queue</button>
+        </form>
+      </div>
+    </section>
+
     <!-- VIEW: RULES -->
     <section id="rulesView" class="tab-content">
       <div class="rules-card">
@@ -89,19 +131,18 @@
         <ul>
           <li><strong>Main List (#1 - #50):</strong> Levels reward points. Rank #1 awards a maximum base of <strong>350.00 pts</strong>.</li>
           <li><strong>Extended List (#51+):</strong> Records are documented and accepted, but award <strong>0.00 pts</strong>.</li>
-          <li><strong>List Requirement %:</strong> Levels can specify a minimum qualifying percentage (e.g., 60%). Qualifying progress records award between <strong>10% and 50%</strong> of the level's point value depending on progress.</li>
+          <li><strong>List Requirement %:</strong> Levels can specify a minimum qualifying percentage (e.g., 60%). Qualifying progress records award between <strong>10% and 50%</strong> of the level's point value.</li>
           <li><strong>Full Completions (100%):</strong> Award <strong>100%</strong> of the level's points.</li>
           <li><strong>Verifier Bonus:</strong> Verifiers receive base placement points <strong>PLUS a 20% bonus</strong>!</li>
         </ul>
         <hr>
-        <h2>Rules for Level Submissions</h2>
+        <h2>Rules for Submissions</h2>
         <ol>
           <li>Must be at least <strong>25 seconds</strong> long.</li>
-          <li>No automated levels (No Auto Retray).</li>
-          <li>Offensive or abusive levels result in an instant ban.</li>
-          <li>Stolen or copied levels are strictly forbidden.</li>
-          <li>Proof of legitimacy is required (clicks/taps, full raw unedited footage).</li>
-          <li>NONG songs are allowed if they don't contain heavily sensitive audio.</li>
+          <li>No automated levels or physics bypasses.</li>
+          <li>Audible clicks/taps and full unedited footage are required for top-tier records.</li>
+          <li>Each user has a maximum limit of <strong>3 simultaneous pending submissions</strong> to prevent queue flooding.</li>
+          <li>Submitting fraudulent, spliced, or hacked footage will lead to permanent list blacklisting.</li>
         </ol>
       </div>
     </section>
@@ -118,7 +159,10 @@
           <div class="profile-main-info">
             <div class="avatar-circle" id="profileAvatar">?</div>
             <div>
-              <h2 id="profilePlayerName">Player</h2>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <h2 id="profilePlayerName">Player</h2>
+                <span id="profileBanBadge" class="status-badge badge-rejected" style="display:none;">BANNED</span>
+              </div>
               <span class="user-badge" id="profileBadge">Player</span>
               <p class="profile-bio-text" id="profileBioDisplay">No bio set.</p>
             </div>
@@ -126,6 +170,16 @@
           <div class="profile-rank-badge">
             <span class="badge-label">List Rank</span>
             <strong id="profileRankText">#--</strong>
+          </div>
+        </div>
+
+        <!-- MODERATION ACTION BAR (Visible when Mod views someone else's profile) -->
+        <div id="profileModActionsCard" class="profile-settings-card" style="display: none; margin-bottom: 20px; border-color: var(--danger);">
+          <h3 style="color: var(--danger);">🛡️ Moderator Sanctions for <span id="modTargetPlayerName">Player</span></h3>
+          <div class="mod-action-buttons">
+            <button type="button" class="btn-warn" id="openPunishModalBtn">⏳ Submission Timeout</button>
+            <button type="button" class="btn-danger" id="openBanModalBtn">🔨 Ban Account & Purge Records</button>
+            <button type="button" class="btn-secondary" id="unbanPlayerBtn" style="display: none;">🕊️ Remove Sanctions (Unban)</button>
           </div>
         </div>
 
@@ -146,6 +200,20 @@
           <div class="stat-card">
             <span>Verifications</span>
             <strong id="profileVerifications">0</strong>
+          </div>
+        </div>
+
+        <!-- PRIVATE SUBMISSIONS TRACKER (Visible ONLY to the logged-in owner) -->
+        <div class="profile-records-card" id="myPrivateSubmissionsCard" style="display: none; margin-bottom: 20px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <h3>My Submission Status & Queue Position</h3>
+            <span class="text-muted" style="font-size: 0.8rem;">🔒 Private to you</span>
+          </div>
+          <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 12px;">
+            Queue positions count all pending submissions ahead of yours (oldest to newest).
+          </p>
+          <div id="profileSubmissionsList" class="profile-level-list">
+            <p class="text-muted">You have no active or recent submissions.</p>
           </div>
         </div>
 
@@ -173,7 +241,7 @@
           </div>
         </div>
 
-        <!-- BIO MANAGEMENT (LOGGED IN USER ONLY) -->
+        <!-- BIO MANAGEMENT -->
         <div class="profile-settings-card" id="bioEditCard" style="display: none; margin-top: 20px;">
           <h3>Edit Personal Bio</h3>
           <form id="updateBioForm" class="update-bio-form">
@@ -182,13 +250,33 @@
           </form>
         </div>
 
-        <!-- SECURITY NOTICE -->
-        <div class="profile-security-notice" style="margin-top: 20px;">
-          <p class="text-muted" style="font-size: 0.85rem;">
-            🔒 <strong>Display Name Security:</strong> Self-service name changes are disabled to protect players against score spoofing and account collisions. To request an official name update, contact an Ascent Nation moderator.
-          </p>
+      </div>
+    </section>
+
+    <!-- VIEW: MODERATOR QUEUE -->
+    <section id="queueView" class="tab-content">
+      <div class="admin-wrapper" style="max-width: 1100px;">
+        <div class="admin-header">
+          <div>
+            <h2>Review Queue (On-Hold Submissions)</h2>
+            <p class="text-muted">Review from <strong>oldest to newest</strong> to maintain fair queue order.</p>
+          </div>
+          <div class="queue-sort-controls">
+            <select id="queueTypeFilter">
+              <option value="all">All Types</option>
+              <option value="completion">Completions</option>
+              <option value="verification">Verifications</option>
+            </select>
+            <select id="queueOrderFilter">
+              <option value="asc">Oldest First (Recommended)</option>
+              <option value="desc">Newest First</option>
+            </select>
+          </div>
         </div>
 
+        <div id="queueItemsList" class="queue-container">
+          <div class="loading">Loading pending submissions...</div>
+        </div>
       </div>
     </section>
 
@@ -201,9 +289,9 @@
         </div>
 
         <div class="admin-grid">
-          <!-- CARD 1: ADD RECORD / VICTOR -->
+          <!-- CARD 1: DIRECT INSERT VICTOR -->
           <div class="admin-card">
-            <h3>Add Approved Record</h3>
+            <h3>Direct Record Placement</h3>
             <form id="addVictorForm">
               <label for="victorLevelSelect">Select Level</label>
               <select id="victorLevelSelect" required></select>
@@ -220,7 +308,7 @@
               <label for="victorDevice">Device / Refresh Rate</label>
               <input type="text" id="victorDevice" placeholder="e.g. 240Hz or Mobile 120Hz" value="PC 240Hz" maxlength="30">
 
-              <button type="submit" class="submit-btn">Save Record</button>
+              <button type="submit" class="submit-btn">Save Direct Record</button>
             </form>
           </div>
 
@@ -259,6 +347,30 @@
       </div>
     </section>
 
+    <!-- VIEW: MOD AUDIT LOGS -->
+    <section id="logsView" class="tab-content">
+      <div class="leaderboard-wrapper" style="max-width: 1000px;">
+        <div class="panel-header">
+          <h2>🛡️ Moderator Action Audit Logs</h2>
+          <p>Chronological history of approvals, rejections, bans, timeouts, and deletions.</p>
+        </div>
+        <table class="leaderboard-table">
+          <thead>
+            <tr>
+              <th style="width: 160px;">Date & Time</th>
+              <th>Moderator</th>
+              <th>Action</th>
+              <th>Target</th>
+              <th>Details / Reason</th>
+            </tr>
+          </thead>
+          <tbody id="logsTableBody">
+            <tr><td colspan="5" class="loading">Loading logs...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
   </main>
 
   <!-- AUTH MODAL -->
@@ -271,7 +383,6 @@
         <button type="button" class="auth-tab-btn" id="tabSignupBtn">Register</button>
       </div>
 
-      <!-- FORM: SIGN IN -->
       <form id="loginForm">
         <label for="loginUsername">Username</label>
         <input 
@@ -290,7 +401,6 @@
         <button type="submit" class="submit-btn" style="margin-top: 12px;">Sign In</button>
       </form>
 
-      <!-- FORM: SIGN UP -->
       <form id="signupForm" style="display: none;">
         <label for="signupUsername">Choose a Username</label>
         <input 
@@ -310,6 +420,74 @@
       </form>
 
       <div id="authError" class="login-error"></div>
+    </div>
+  </div>
+
+  <!-- MODAL: REJECT SUBMISSION (REASON REQUIRED) -->
+  <div id="rejectModal" class="modal">
+    <div class="modal-content">
+      <span class="close-btn" id="closeRejectModal">&times;</span>
+      <h3 style="margin-bottom: 12px; color: var(--danger);">Deny Submission</h3>
+      <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 12px;">
+        Please specify why this submission is being rejected. This explanation is shown directly on the player's profile.
+      </p>
+
+      <label for="rejectPreset">Quick Preset</label>
+      <select id="rejectPreset" style="margin-bottom: 12px;">
+        <option value="">-- Choose Preset or Write Below --</option>
+        <option value="No audible clicks/taps in required section.">No audible clicks/taps</option>
+        <option value="Physics bypass or suspected speedhack/botting detected.">Suspected hacking/physics bypass</option>
+        <option value="Raw unedited footage is missing or private.">Missing or private raw footage</option>
+        <option value="Inappropriate, offensive, or clickbait thumbnail/video title.">Inappropriate thumbnail/title</option>
+        <option value="Does not meet minimum level requirement percentage.">Below level minimum percentage</option>
+        <option value="Video cuts, spliced frames, or audio desync found.">Spliced video / desync</option>
+      </select>
+
+      <label for="rejectCustomReason">Detailed Reason</label>
+      <textarea id="rejectCustomReason" rows="3" placeholder="Explain the denial reason..." required></textarea>
+
+      <button type="button" id="confirmRejectBtn" class="submit-btn" style="background: var(--danger); color: #fff; margin-top: 10px;">Confirm Rejection</button>
+    </div>
+  </div>
+
+  <!-- MODAL: PUNISH SUBMISSION TIMEOUT -->
+  <div id="punishModal" class="modal">
+    <div class="modal-content">
+      <span class="close-btn" id="closePunishModal">&times;</span>
+      <h3 style="margin-bottom: 12px; color: var(--accent-gold);">Apply Submission Timeout</h3>
+      <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 12px;">
+        Temporarily prevents this player from sending new records to the queue.
+      </p>
+
+      <label for="punishDuration">Timeout Duration</label>
+      <select id="punishDuration" style="margin-bottom: 12px;">
+        <option value="1">1 Day</option>
+        <option value="3">3 Days</option>
+        <option value="7">7 Days</option>
+        <option value="30">1 Month (30 Days)</option>
+        <option value="forever">Forever (Permanent Submission Blacklist)</option>
+      </select>
+
+      <label for="punishReason">Reason for Timeout</label>
+      <input type="text" id="punishReason" placeholder="e.g. Repeatedly spamming unbeat runs / fake proofs" required maxlength="150">
+
+      <button type="button" id="confirmPunishBtn" class="submit-btn" style="background: var(--accent-gold); color: #000; margin-top: 10px;">Apply Timeout</button>
+    </div>
+  </div>
+
+  <!-- MODAL: BAN ACCOUNT & PURGE RECORDS -->
+  <div id="banModal" class="modal">
+    <div class="modal-content">
+      <span class="close-btn" id="closeBanModal">&times;</span>
+      <h3 style="margin-bottom: 12px; color: var(--danger);">Ban Player Account</h3>
+      <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 12px;">
+        This bans the player, locks their account upon login with the reason, and purges all their approved records and verifications from the list. <strong>The account is not deleted.</strong>
+      </p>
+
+      <label for="banReasonInput">Official Reason for Ban</label>
+      <textarea id="banReasonInput" rows="3" placeholder="e.g. Confirmed secret way abuse and macro usage across multiple levels..." required maxlength="250"></textarea>
+
+      <button type="button" id="confirmBanBtn" class="submit-btn" style="background: var(--danger); color: #fff; margin-top: 10px;">Execute Ban & Purge Records</button>
     </div>
   </div>
 
