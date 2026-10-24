@@ -1,29 +1,286 @@
-// State management
+let currentLevels = [];
 let currentTab = "main";
 let selectedLevelId = null;
+let currentModerator = null;
 
-// Points formula: Top 1 = 350, Top 25 = 55, Top 50 = minimum points, 51+ = 0 points
+// Points formula (Top 1 = 350, Top 25 = 55, Top 50 = min, 51+ = 0)
 function calculatePoints(rank) {
-  if (rank > ANL_DATA.settings.mainListCutoff) return 0;
-  // Non-linear exponential decay formula matching ANL examples:
-  // rank 1 -> ~350, rank 25 -> ~55
+  if (rank > SETTINGS.mainListCutoff) return 0;
   const pts = 350 * Math.pow(55 / 350, (rank - 1) / 24);
   return parseFloat(pts.toFixed(2));
 }
 
-// Initialize Application
-document.addEventListener("DOMContentLoaded", () => {
-  // Setup links from settings
-  document.getElementById("discordLink").href = ANL_DATA.settings.discordUrl;
-  document.getElementById("ytLink").href = ANL_DATA.settings.youtubeUrl;
+// Startup
+document.addEventListener("DOMContentLoaded", async () => {
+  document.getElementById("discordLink").href = SETTINGS.discordUrl;
+  document.getElementById("ytLink").href = SETTINGS.youtubeUrl;
 
   setupNavigation();
   setupSearch();
-  renderList();
-  renderLeaderboard();
+  setupAuth();
+  setupForms();
+
+  await checkAuthSession();
+  await fetchLevelsFromDB();
 });
 
-// Tab Switching
+// Check if a moderator is already logged in
+async function checkAuthSession() {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session) {
+    const { data: mod } = await supabase
+      .from('moderators')
+      .select('*')
+      .eq('user_id', session.user.id)
+      .single();
+
+    if (mod) {
+      setModeratorState(session.user);
+    }
+  }
+}
+
+function setModeratorState(user) {
+  currentModerator = user;
+  document.getElementById("adminTabBtn").style.display = "block";
+  const authBtn = document.getElementById("authBtn");
+  authBtn.textContent = "Logout";
+  authBtn.onclick = async () => {
+    await supabase.auth.signOut();
+    location.reload();
+  };
+}
+
+// Fetch Levels and Victors from Supabase
+async function fetchLevelsFromDB() {
+  const { data, error } = await supabase
+    .from('levels')
+    .select(`
+      id, rank, name, creator, verifier, video_url, description,
+      victors ( id, player_name, percentage, proof_url, device )
+    `)
+    .order('rank', { ascending: true });
+
+  if (error) {
+    console.error("Error fetching levels:", error);
+    return;
+  }
+
+  currentLevels = data;
+  renderList();
+  renderLeaderboard();
+  populateAdminDropdown();
+}
+
+// Render Level List
+function renderList() {
+  const listContainer = document.getElementById("levelList");
+  listContainer.innerHTML = "";
+
+  const isMain = currentTab === "main";
+  const filtered = currentLevels.filter(lvl => 
+    isMain ? lvl.rank <= SETTINGS.mainListCutoff : lvl.rank > SETTINGS.mainListCutoff
+  );
+
+  if (filtered.length === 0) {
+    listContainer.innerHTML = `<div style="padding: 20px; color: var(--text-muted);">No levels in this section.</div>`;
+    document.getElementById("levelDetails").innerHTML = "";
+    return;
+  }
+
+  filtered.forEach((level, i) => {
+    const item = document.createElement("div");
+    item.className = `level-item ${level.id === selectedLevelId || (!selectedLevelId && i === 0) ? "active" : ""}`;
+    item.innerHTML = `
+      <div class="item-rank">#${level.rank}</div>
+      <div class="item-info">
+        <div class="item-name">${escapeHtml(level.name)}</div>
+        <div class="item-author">by ${escapeHtml(level.creator)}</div>
+      </div>
+    `;
+
+    item.addEventListener("click", () => {
+      selectedLevelId = level.id;
+      renderList();
+      renderLevelDetails(level);
+    });
+
+    listContainer.appendChild(item);
+  });
+
+  const selected = filtered.find(l => l.id === selectedLevelId) || filtered[0];
+  if (selected) {
+    selectedLevelId = selected.id;
+    renderLevelDetails(selected);
+  }
+}
+
+// Render Level Details
+function renderLevelDetails(level) {
+  const container = document.getElementById("levelDetails");
+  const points = calculatePoints(level.rank);
+  const verifierBonus = (points * SETTINGS.verifierBonusPct).toFixed(2);
+  const totalVerifierPts = (points * (1 + SETTINGS.verifierBonusPct)).toFixed(2);
+
+  container.innerHTML = `
+    <div class="level-header">
+      <div class="level-title-group">
+        <h2>#${level.rank} - ${escapeHtml(level.name)}</h2>
+        <p>Created by <strong>${escapeHtml(level.creator)}</strong> | Verified by <strong>${escapeHtml(level.verifier)}</strong></p>
+      </div>
+      <div class="points-pill">
+        ${points > 0 ? `${points.toFixed(2)} pts` : "0.00 pts (Extended)"}
+      </div>
+    </div>
+
+    <div class="video-wrapper">
+      <iframe src="${level.video_url || ''}" allowfullscreen></iframe>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <span>Verifier Bonus</span>
+        <strong>${points > 0 ? `+${verifierBonus} pts (${totalVerifierPts} total)` : '0 pts'}</strong>
+      </div>
+      <div class="stat-card">
+        <span>Total Victors</span>
+        <strong>${level.victors ? level.victors.length : 0} Victor(s)</strong>
+      </div>
+      <div class="stat-card">
+        <span>Description</span>
+        <strong style="font-size:0.85rem; font-weight: normal;">${escapeHtml(level.description || "No description provided.")}</strong>
+      </div>
+    </div>
+
+    <div class="victors-card">
+      <h3>Approved 100% Records</h3>
+      <div class="victor-list">
+        ${level.victors && level.victors.length > 0 ? level.victors.map(v => `
+          <div class="victor-row">
+            <span><strong>${escapeHtml(v.player_name)}</strong> (${escapeHtml(v.device || 'PC')})</span>
+            <div>
+              <a href="${v.proof_url}" target="_blank">Proof</a>
+              ${currentModerator ? `<button class="delete-victor-btn" onclick="deleteVictor(${v.id})">✕ Delete</button>` : ''}
+            </div>
+          </div>
+        `).join("") : `<p style="color: var(--text-muted); padding: 8px 0;">No victors yet.</p>`}
+      </div>
+    </div>
+  `;
+}
+
+// Calculate Leaderboard
+function renderLeaderboard() {
+  const playerStats = {};
+
+  currentLevels.forEach(level => {
+    const basePts = calculatePoints(level.rank);
+
+    // Credit Verifier
+    if (level.verifier) {
+      if (!playerStats[level.verifier]) {
+        playerStats[level.verifier] = { points: 0, completions: 0, verifications: 0 };
+      }
+      playerStats[level.verifier].points += basePts * (1 + SETTINGS.verifierBonusPct);
+      playerStats[level.verifier].verifications += 1;
+    }
+
+    // Credit Victors
+    if (level.victors) {
+      level.victors.forEach(victor => {
+        if (!playerStats[victor.player_name]) {
+          playerStats[victor.player_name] = { points: 0, completions: 0, verifications: 0 };
+        }
+        playerStats[victor.player_name].points += basePts;
+        playerStats[victor.player_name].completions += 1;
+      });
+    }
+  });
+
+  const sorted = Object.entries(playerStats)
+    .map(([name, data]) => ({ name, ...data }))
+    .sort((a, b) => b.points - a.points);
+
+  const tbody = document.getElementById("leaderboardBody");
+  tbody.innerHTML = sorted.map((p, idx) => `
+    <tr>
+      <td><strong>#${idx + 1}</strong></td>
+      <td><strong>${escapeHtml(p.name)}</strong></td>
+      <td style="color: var(--accent); font-weight:700;">${p.points.toFixed(2)}</td>
+      <td>${p.completions}</td>
+      <td>${p.verifications}</td>
+    </tr>
+  `).join("");
+}
+
+// Setup Admin Forms (Adding levels & victors)
+function setupForms() {
+  // Add Victor Form
+  document.getElementById("addVictorForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const levelId = document.getElementById("victorLevelSelect").value;
+    const playerName = document.getElementById("victorPlayerName").value.trim();
+    const proofUrl = document.getElementById("victorProofUrl").value.trim();
+    const device = document.getElementById("victorDevice").value.trim();
+
+    const { error } = await supabase.from('victors').insert([
+      { level_id: levelId, player_name: playerName, proof_url: proofUrl, device: device }
+    ]);
+
+    if (error) {
+      alert("Error adding victor: " + error.message);
+    } else {
+      alert(`Victor record added for ${playerName}!`);
+      document.getElementById("addVictorForm").reset();
+      await fetchLevelsFromDB();
+    }
+  });
+
+  // Add Level Form
+  document.getElementById("addLevelForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const rank = parseInt(document.getElementById("levelRank").value);
+    const name = document.getElementById("levelName").value.trim();
+    const creator = document.getElementById("levelCreator").value.trim();
+    const verifier = document.getElementById("levelVerifier").value.trim();
+    const video = document.getElementById("levelVideo").value.trim();
+    const description = document.getElementById("levelDescription").value.trim();
+
+    const { error } = await supabase.from('levels').insert([
+      { rank, name, creator, verifier, video_url: video, description }
+    ]);
+
+    if (error) {
+      alert("Error adding level: " + error.message);
+    } else {
+      alert(`Level ${name} placed at #${rank}!`);
+      document.getElementById("addLevelForm").reset();
+      await fetchLevelsFromDB();
+    }
+  });
+}
+
+// Delete a Victor (Moderators only)
+async function deleteVictor(victorId) {
+  if (!confirm("Are you sure you want to remove this record?")) return;
+
+  const { error } = await supabase.from('victors').delete().eq('id', victorId);
+  if (error) {
+    alert("Error deleting victor: " + error.message);
+  } else {
+    await fetchLevelsFromDB();
+  }
+}
+
+// Populate Level Dropdown for the Admin form
+function populateAdminDropdown() {
+  const select = document.getElementById("victorLevelSelect");
+  select.innerHTML = currentLevels.map(lvl => `
+    <option value="${lvl.id}">#${lvl.rank} - ${escapeHtml(lvl.name)}</option>
+  `).join("");
+}
+
+// Navigation Tab switcher
 function setupNavigation() {
   document.querySelectorAll(".nav-btn").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -43,158 +300,73 @@ function setupNavigation() {
         renderLeaderboard();
       } else if (tab === "rules") {
         document.getElementById("rulesView").classList.add("active");
+      } else if (tab === "admin") {
+        document.getElementById("adminView").classList.add("active");
       }
     });
   });
-}
-
-// Render Level Cards in the Left Sidebar
-function renderList() {
-  const listContainer = document.getElementById("levelList");
-  listContainer.innerHTML = "";
-
-  const isMain = currentTab === "main";
-  
-  // Filter levels for Main (1-50) or Extended (51+)
-  const displayedLevels = ANL_DATA.levels
-    .map((lvl, index) => ({ ...lvl, rank: index + 1 }))
-    .filter(lvl => isMain ? lvl.rank <= ANL_DATA.settings.mainListCutoff : lvl.rank > ANL_DATA.settings.mainListCutoff);
-
-  if (displayedLevels.length === 0) {
-    listContainer.innerHTML = `<div style="padding: 20px; color: var(--text-muted);">No levels in this section yet.</div>`;
-    document.getElementById("levelDetails").innerHTML = "";
-    return;
-  }
-
-  displayedLevels.forEach((level, i) => {
-    const item = document.createElement("div");
-    item.className = `level-item ${level.id === selectedLevelId || (!selectedLevelId && i === 0) ? "active" : ""}`;
-    item.innerHTML = `
-      <div class="item-rank">#${level.rank}</div>
-      <div class="item-info">
-        <div class="item-name">${level.name}</div>
-        <div class="item-author">by ${level.creator}</div>
-      </div>
-    `;
-
-    item.addEventListener("click", () => {
-      selectedLevelId = level.id;
-      renderList();
-      renderLevelDetails(level);
-    });
-
-    listContainer.appendChild(item);
-  });
-
-  // Default select first item
-  const initial = displayedLevels.find(l => l.id === selectedLevelId) || displayedLevels[0];
-  if (initial) renderLevelDetails(initial);
-}
-
-// Render Right Details Pane
-function renderLevelDetails(level) {
-  const container = document.getElementById("levelDetails");
-  const points = calculatePoints(level.rank);
-  const verifierBonus = (points * ANL_DATA.settings.verifierBonusPct).toFixed(2);
-  const totalVerifierPts = (points * (1 + ANL_DATA.settings.verifierBonusPct)).toFixed(2);
-
-  container.innerHTML = `
-    <div class="level-header">
-      <div class="level-title-group">
-        <h2>#${level.rank} - ${level.name}</h2>
-        <p>Created by <strong>${level.creator}</strong> | Verified by <strong>${level.verifier}</strong></p>
-      </div>
-      <div class="points-pill">
-        ${points > 0 ? `${points.toFixed(2)} pts` : "0.00 pts (Extended)"}
-      </div>
-    </div>
-
-    <div class="video-wrapper">
-      <iframe src="${level.verificationVideo}" allowfullscreen></iframe>
-    </div>
-
-    <div class="stats-grid">
-      <div class="stat-card">
-        <span>Verifier Bonus</span>
-        <strong>${points > 0 ? `+${verifierBonus} pts (Total: ${totalVerifierPts})` : '0 pts'}</strong>
-      </div>
-      <div class="stat-card">
-        <span>Total Victors</span>
-        <strong>${level.victors.length} Victor(s)</strong>
-      </div>
-      <div class="stat-card">
-        <span>Description</span>
-        <strong style="font-size:0.85rem; font-weight: normal;">${level.description || "No description provided."}</strong>
-      </div>
-    </div>
-
-    <div class="victors-card">
-      <h3>Approved 100% Records</h3>
-      <div class="victor-list">
-        ${level.victors.length > 0 ? level.victors.map(v => `
-          <div class="victor-row">
-            <span><strong>${v.name}</strong> (${v.device || 'PC'})</span>
-            <span>${v.percentage}%</span>
-            <a href="${v.proof}" target="_blank">Watch Proof</a>
-          </div>
-        `).join("") : `<p style="color: var(--text-muted); padding: 8px 0;">No victors yet. Be the first to beat it!</p>`}
-      </div>
-    </div>
-  `;
 }
 
 // Search Filter
 function setupSearch() {
-  const searchInput = document.getElementById("searchInput");
-  searchInput.addEventListener("input", (e) => {
+  const input = document.getElementById("searchInput");
+  input.addEventListener("input", (e) => {
     const q = e.target.value.toLowerCase();
     document.querySelectorAll(".level-item").forEach(item => {
-      const match = item.innerText.toLowerCase().includes(q);
-      item.style.display = match ? "flex" : "none";
+      item.style.display = item.innerText.toLowerCase().includes(q) ? "flex" : "none";
     });
   });
 }
 
-// Leaderboard Calculation
-function renderLeaderboard() {
-  const playerStats = {};
+// Auth Modal / Login Handler
+function setupAuth() {
+  const modal = document.getElementById("authModal");
+  const authBtn = document.getElementById("authBtn");
+  const closeBtn = document.getElementById("closeAuthModal");
 
-  ANL_DATA.levels.forEach((level, index) => {
-    const rank = index + 1;
-    const basePts = calculatePoints(rank);
+  authBtn.onclick = () => {
+    if (!currentModerator) modal.classList.add("active");
+  };
 
-    // Credit Verifier (+20% bonus)
-    if (level.verifier) {
-      if (!playerStats[level.verifier]) {
-        playerStats[level.verifier] = { points: 0, completions: 0, verifications: 0 };
-      }
-      playerStats[level.verifier].points += basePts * (1 + ANL_DATA.settings.verifierBonusPct);
-      playerStats[level.verifier].verifications += 1;
+  closeBtn.onclick = () => modal.classList.remove("active");
+
+  document.getElementById("loginForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const email = document.getElementById("loginEmail").value;
+    const password = document.getElementById("loginPassword").value;
+    const errorEl = document.getElementById("loginError");
+
+    errorEl.textContent = "Signing in...";
+
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      errorEl.textContent = error.message;
+      return;
     }
 
-    // Credit Victors (Completions)
-    level.victors.forEach(victor => {
-      if (!playerStats[victor.name]) {
-        playerStats[victor.name] = { points: 0, completions: 0, verifications: 0 };
-      }
-      playerStats[victor.name].points += basePts;
-      playerStats[victor.name].completions += 1;
-    });
+    // Verify moderator privileges
+    const { data: mod } = await supabase
+      .from('moderators')
+      .select('*')
+      .eq('user_id', data.user.id)
+      .single();
+
+    if (!mod) {
+      errorEl.textContent = "Account verified, but you lack moderator permissions.";
+      await supabase.auth.signOut();
+      return;
+    }
+
+    modal.classList.remove("active");
+    setModeratorState(data.user);
+    renderList(); // Re-render to show delete buttons
   });
+}
 
-  // Sort descending by points
-  const sortedPlayers = Object.entries(playerStats)
-    .map(([name, data]) => ({ name, ...data }))
-    .sort((a, b) => b.points - a.points);
-
-  const tbody = document.getElementById("leaderboardBody");
-  tbody.innerHTML = sortedPlayers.map((player, index) => `
-    <tr>
-      <td><strong>#${index + 1}</strong></td>
-      <td><strong>${player.name}</strong></td>
-      <td style="color: var(--accent); font-weight:700;">${player.points.toFixed(2)}</td>
-      <td>${player.completions}</td>
-      <td>${player.verifications}</td>
-    </tr>
-  `).join("");
+// Helper: Escape HTML to prevent basic injection
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/[&<>'"]/g, tag => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+  }[tag] || tag));
 }

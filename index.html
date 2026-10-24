@@ -7,10 +7,12 @@
   <link rel="stylesheet" href="style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+  <!-- Supabase CDN Client -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
-  <!-- TOP HEADER / NAVBAR -->
+  <!-- NAVBAR -->
   <header class="navbar">
     <div class="nav-brand">
       <span class="logo-badge">ANL</span>
@@ -21,35 +23,35 @@
       <button class="nav-btn" data-tab="extended">Extended (51+)</button>
       <button class="nav-btn" data-tab="leaderboard">Leaderboard</button>
       <button class="nav-btn" data-tab="rules">Rules & Info</button>
+      <!-- Moderator-only Tab (Hidden by default) -->
+      <button class="nav-btn mod-only" id="adminTabBtn" data-tab="admin" style="display: none;">⚙️ Admin Panel</button>
     </nav>
-    <div class="nav-socials">
+    <div class="nav-actions">
       <a id="discordLink" target="_blank" class="social-btn discord">Discord</a>
       <a id="ytLink" target="_blank" class="social-btn youtube">YouTube</a>
+      <!-- Auth Button -->
+      <button id="authBtn" class="auth-btn">Mod Login</button>
     </div>
   </header>
 
   <!-- MAIN CONTAINER -->
   <main class="container">
     
-    <!-- VIEW: LEVEL LIST VIEW (MAIN OR EXTENDED) -->
+    <!-- VIEW: LIST VIEW -->
     <section id="listView" class="tab-content active">
       <div class="list-layout">
-        
-        <!-- SIDEBAR: LEVEL CARDS -->
         <aside class="sidebar">
           <div class="search-box">
             <input type="text" id="searchInput" placeholder="Search level or creator...">
           </div>
           <div id="levelList" class="level-items-container">
-            <!-- Dynamic Level Items injected here -->
+            <div class="loading">Loading levels from database...</div>
           </div>
         </aside>
 
-        <!-- MAIN CONTENT: LEVEL DETAILS -->
         <article class="level-detail-pane" id="levelDetails">
-          <!-- Injected via JavaScript -->
+          <div class="loading">Select a level...</div>
         </article>
-
       </div>
     </section>
 
@@ -70,50 +72,116 @@
               <th>Verifications</th>
             </tr>
           </thead>
-          <tbody id="leaderboardBody">
-            <!-- Dynamically populated -->
-          </tbody>
+          <tbody id="leaderboardBody"></tbody>
         </table>
       </div>
     </section>
 
-    <!-- VIEW: RULES AND GUIDELINES -->
+    <!-- VIEW: RULES -->
     <section id="rulesView" class="tab-content">
       <div class="rules-card">
         <h2>What is ANL?</h2>
-        <p><strong>ANL (Ascent Nation List)</strong> is a list of the hardest levels <em>made</em> and <em>verified</em> by members of the Ascent Nation (Ascent_GD's community), created by Ascent, M1xxronium, and fellow community members.</p>
-        
+        <p><strong>ANL (Ascent Nation List)</strong> is a list of the hardest levels <em>made</em> and <em>verified</em> by members of the Ascent Nation, created by Ascent, M1xxronium, and fellow community members.</p>
         <hr>
-
         <h2>Points System</h2>
         <ul>
-          <li><strong>Main List (#1 - #50):</strong> Levels reward points on completion. #1 awards <strong>350.00 pts</strong>, tapering down to position #50.</li>
-          <li><strong>Extended List (#51+):</strong> Free to beat and records are tracked, but award <strong>0.00 pts</strong>.</li>
-          <li><strong>Verification Bonus:</strong> Verifiers receive the full base placement points <strong>PLUS a 20% bonus</strong>! (e.g., verifying a 350 pt #1 level gives 350 + 70 = <strong>420.00 pts</strong>).</li>
+          <li><strong>Main List (#1 - #50):</strong> Levels reward points on completion. #1 awards <strong>350.00 pts</strong>.</li>
+          <li><strong>Extended List (#51+):</strong> Free to beat and records are recorded, but award <strong>0.00 pts</strong>.</li>
+          <li><strong>Verifier Bonus:</strong> Verifiers receive base placement points <strong>PLUS a 20% bonus</strong>!</li>
         </ul>
-
         <hr>
-
-        <h2>How to get a level placed?</h2>
+        <h2>Rules for Level Submissions</h2>
         <ol>
-          <li><strong>Length:</strong> Must be at least <strong>25 seconds</strong> long (few exceptions apply).</li>
-          <li><strong>No Auto Levels:</strong> No automated levels (Sorry, no Auto Retray).</li>
-          <li><strong>Strict Conduct:</strong> Offensive, racist, or sexist levels are strictly rejected and can lead to a community ban.</li>
-          <li><strong>Originality:</strong> Stolen levels or copies of existing rated levels will not be accepted.</li>
-          <li><strong>Proof of Legitimacy:</strong> Raw footage, clicks/taps, and legitimate completion proof are required to avoid unverified impossible difficulty.</li>
-          <li><strong>NONGs:</strong> Allowed, provided songs don't contain heavily sensitive content or lyrics.</li>
+          <li>Must be at least <strong>25 seconds</strong> long.</li>
+          <li>No automated levels (No Auto Retray).</li>
+          <li>Offensive, racist, or sexist levels result in an instant ban.</li>
+          <li>Stolen or copied levels are forbidden.</li>
+          <li>Proof of legitimacy is required (clicks/taps, raw video proof).</li>
+          <li>NONG songs are allowed if they don't contain heavily sensitive lyrics.</li>
         </ol>
+      </div>
+    </section>
 
-        <hr>
+    <!-- VIEW: ADMIN DASHBOARD (MODERATORS ONLY) -->
+    <section id="adminView" class="tab-content">
+      <div class="admin-wrapper">
+        <div class="admin-header">
+          <h2>Moderator Command Center</h2>
+          <span class="mod-badge">Authenticated Moderator</span>
+        </div>
 
-        <h2>Ready to submit?</h2>
-        <p>Join the official Discord server to submit verifications, completions, or cheater reports to the moderators!</p>
+        <div class="admin-grid">
+          <!-- CARD 1: ADD VICTOR -->
+          <div class="admin-card">
+            <h3>Add Approved Victor</h3>
+            <form id="addVictorForm">
+              <label>Select Level</label>
+              <select id="victorLevelSelect" required></select>
+
+              <label>Player Name</label>
+              <input type="text" id="victorPlayerName" placeholder="e.g. Ascent" required>
+
+              <label>Proof Link (YouTube URL)</label>
+              <input type="url" id="victorProofUrl" placeholder="https://youtu.be/..." required>
+
+              <label>Device / Refresh Rate</label>
+              <input type="text" id="victorDevice" placeholder="e.g. 240Hz or Mobile 120Hz" value="PC 240Hz">
+
+              <button type="submit" class="submit-btn">Save Victor Record</button>
+            </form>
+          </div>
+
+          <!-- CARD 2: ADD NEW LEVEL -->
+          <div class="admin-card">
+            <h3>Place New Level on ANL</h3>
+            <form id="addLevelForm">
+              <label>List Rank</label>
+              <input type="number" id="levelRank" min="1" placeholder="Rank (e.g. 1)" required>
+
+              <label>Level Name</label>
+              <input type="text" id="levelName" placeholder="Level Title" required>
+
+              <label>Creator(s)</label>
+              <input type="text" id="levelCreator" placeholder="Creator name(s)" required>
+
+              <label>Verifier</label>
+              <input type="text" id="levelVerifier" placeholder="Verifier name" required>
+
+              <label>Verification Video (YouTube Embed Link)</label>
+              <input type="url" id="levelVideo" placeholder="https://www.youtube.com/embed/..." required>
+
+              <label>Level Description</label>
+              <textarea id="levelDescription" rows="3" placeholder="Brief info about the level..."></textarea>
+
+              <button type="submit" class="submit-btn">Publish Level</button>
+            </form>
+          </div>
+        </div>
       </div>
     </section>
 
   </main>
 
-  <script src="data.js"></script>
+  <!-- AUTH / LOGIN MODAL -->
+  <div id="authModal" class="modal">
+    <div class="modal-content">
+      <span class="close-btn" id="closeAuthModal">&times;</span>
+      <h3>Moderator Login</h3>
+      <p style="font-size:0.85rem; color: var(--text-muted); margin-bottom: 16px;">Only authorized list moderators can log in.</p>
+      <form id="loginForm">
+        <label>Moderator Email</label>
+        <input type="email" id="loginEmail" required autocomplete="username">
+        
+        <label>Password</label>
+        <input type="password" id="loginPassword" required autocomplete="current-password">
+
+        <button type="submit" class="submit-btn" style="margin-top: 12px;">Sign In</button>
+      </form>
+      <div id="loginError" class="login-error"></div>
+    </div>
+  </div>
+
+  <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
