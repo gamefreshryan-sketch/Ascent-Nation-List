@@ -3,7 +3,7 @@ let currentTab = "main";
 let selectedLevelId = null;
 let currentUser = null;
 let currentModerator = null;
-let activeProfilePlayer = null; // When viewing another player's profile
+let activeProfilePlayer = null;
 let currentProfileSort = "rank"; // 'rank', 'points', 'pct', 'name'
 
 // Helper: Validate username format
@@ -33,6 +33,13 @@ function getYouTubeEmbedUrl(url) {
   if (!url) return '';
   const match = String(url).match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
   return match ? `https://www.youtube.com/embed/${match[1]}` : '';
+}
+
+// Helper: Extract YouTube video thumbnail (320x180 mqdefault)
+function getYouTubeThumbnailUrl(url) {
+  if (!url) return '';
+  const match = String(url).match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
+  return match ? `https://img.youtube.com/vi/${match[1]}/mqdefault.jpg` : '';
 }
 
 // Helper: Escape HTML entities
@@ -162,7 +169,9 @@ async function checkAuthSession() {
 }
 
 function setLoggedInState() {
-  const playerName = currentUser.user_metadata?.player_name || "Player";
+  const playerName = currentUser.user_metadata?.player_name 
+                  || currentUser.email?.split('@')[0] 
+                  || "Player";
 
   const adminBtn = document.getElementById("adminTabBtn");
   if (adminBtn) adminBtn.style.display = currentModerator ? "inline-block" : "none";
@@ -257,7 +266,7 @@ function calculateAllPlayerStats() {
         if (!pName) return;
 
         const pct = parseInt(victor.percentage, 10) || 100;
-        if (pct < minReq) return; // Disregard records below requirement
+        if (pct < minReq) return;
 
         if (!playerStats[pName]) {
           playerStats[pName] = {
@@ -333,7 +342,7 @@ function renderProfile() {
 
   if (!targetPlayerName) {
     if (currentUser) {
-      targetPlayerName = currentUser.user_metadata?.player_name || "";
+      targetPlayerName = currentUser.user_metadata?.player_name || currentUser.email?.split('@')[0] || "";
     } else {
       targetPlayerName = allStats.length > 0 ? allStats[0].name : "Player";
     }
@@ -377,7 +386,6 @@ function renderProfile() {
     document.getElementById("profileProgressions").textContent = userStats.progressions;
     document.getElementById("profileVerifications").textContent = userStats.verifications;
 
-    // Sort beaten/progress levels according to selected sort
     const records = [...userStats.beatenLevels];
     if (currentProfileSort === "rank") {
       records.sort((a, b) => a.rank - b.rank);
@@ -443,7 +451,7 @@ function renderProfile() {
   }
 }
 
-// Render Level List
+// Render Level List with Thumbnails & Points
 function renderList() {
   const listContainer = document.getElementById("levelList");
   listContainer.innerHTML = "";
@@ -478,11 +486,43 @@ function renderList() {
   filtered.forEach((level) => {
     const item = document.createElement("div");
     item.className = `level-item ${level.id === selectedLevelId ? "active" : ""}`;
+
+    const thumbUrl = getYouTubeThumbnailUrl(level.video_url);
+    const maxPts = calculatePoints(level.rank);
+    const minReq = level.min_percentage ? parseInt(level.min_percentage, 10) : 100;
+
+    let pointsText = "";
+    if (maxPts > 0) {
+      if (minReq < 100) {
+        const minPts = calculatePointsForRecord(level.rank, minReq, minReq);
+        pointsText = `${minPts.toFixed(1)} &mdash; ${maxPts.toFixed(1)} pts`;
+      } else {
+        pointsText = `${maxPts.toFixed(2)} pts`;
+      }
+    } else {
+      pointsText = "0.00 pts (Extended)";
+    }
+
     item.innerHTML = `
-      <div class="item-rank">#${level.rank}</div>
+      <div class="item-thumb-wrapper">
+        ${thumbUrl 
+          ? `<img src="${thumbUrl}" alt="${escapeHtml(level.name)}" class="item-thumb" loading="lazy">` 
+          : `<div class="item-thumb-placeholder">GD</div>`
+        }
+      </div>
       <div class="item-info">
-        <div class="item-name">${escapeHtml(level.name)}</div>
-        <div class="item-author">by ${escapeHtml(level.creator)}</div>
+        <div class="item-title-row">
+          <span class="item-rank">#${level.rank}</span>
+          <span class="item-name">${escapeHtml(level.name)}</span>
+        </div>
+        <div class="item-meta-row">
+          <span class="item-author">${escapeHtml(level.creator)}</span>
+          <span class="item-sep">|</span>
+          <span class="item-verifier">${escapeHtml(level.verifier || 'Unknown')}</span>
+        </div>
+        <div class="item-points-row">
+          <span class="item-points-label">${pointsText}</span>
+        </div>
       </div>
     `;
 
@@ -665,7 +705,7 @@ function setupForms() {
       return;
     }
 
-    // Try RPC shift first
+    // Attempt RPC shift first
     const { error: rpcError } = await supabaseClient.rpc('insert_level_shift', {
       p_rank: rank,
       p_name: name,
@@ -774,7 +814,7 @@ function setupSearch() {
   });
 }
 
-// Username-based Auth Handlers
+// Username and Email Auth Handlers
 function setupAuth() {
   const modal = document.getElementById("authModal");
   const closeBtn = document.getElementById("closeAuthModal");
@@ -802,26 +842,32 @@ function setupAuth() {
     errorEl.textContent = "";
   };
 
+  // Sign In submit (Supports both Username and Real Emails)
   loginForm.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const username = document.getElementById("loginUsername").value.trim();
+    const identifier = document.getElementById("loginUsername").value.trim();
     const password = document.getElementById("loginPassword").value;
 
-    if (!isValidUsername(username)) {
-      errorEl.textContent = "Usernames may only contain 3-20 letters, numbers, or underscores.";
-      return;
+    let emailToUse;
+    if (identifier.includes("@")) {
+      emailToUse = identifier.toLowerCase();
+    } else {
+      if (!isValidUsername(identifier)) {
+        errorEl.textContent = "Usernames may only contain 3-20 letters, numbers, or underscores.";
+        return;
+      }
+      emailToUse = usernameToEmail(identifier);
     }
 
-    const pseudoEmail = usernameToEmail(username);
     errorEl.textContent = "Signing in...";
 
     const { error } = await supabaseClient.auth.signInWithPassword({
-      email: pseudoEmail,
+      email: emailToUse,
       password: password
     });
 
     if (error) {
-      errorEl.textContent = "Invalid username or password.";
+      errorEl.textContent = "Invalid username/email or password.";
       return;
     }
 
@@ -830,6 +876,7 @@ function setupAuth() {
     renderList();
   });
 
+  // Sign Up submit
   signupForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const username = document.getElementById("signupUsername").value.trim();
