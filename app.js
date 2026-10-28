@@ -656,10 +656,18 @@ async function renderProfile() {
       linkDiscordBtn.style.display = "none";
       unlinkDiscordBtn.style.display = "inline-block";
       unlinkDiscordBtn.onclick = async () => {
-        if (!confirm("Are you sure you want to unlink your Discord account?")) return;
+        // Prevent orphaning the account if Discord is the only login method
+        if (!currentUser.identities || currentUser.identities.length <= 1) {
+          alert("⚠️ You cannot unlink Discord because it is your only sign-in method.\n\nTo unlink Discord, please link a recovery email or set a password in your settings first so you don't lose access to your account.");
+          return;
+        }
+
+        if (!confirm("Are you sure you want to disconnect your Discord account?")) return;
+
         const { error } = await supabaseClient.auth.unlinkIdentity(discordIdentity);
-        if (error) alert("Error unlinking: " + error.message);
-        else {
+        if (error) {
+          alert("Error unlinking: " + error.message);
+        } else {
           alert("Discord unlinked successfully.");
           location.reload();
         }
