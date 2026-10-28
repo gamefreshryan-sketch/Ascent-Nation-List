@@ -1578,16 +1578,13 @@ function setupNavigation() {
   if (subDropdownToggle) {
     subDropdownToggle.addEventListener("click", () => {
       const content = document.getElementById("submissionsDropdownContent");
-      const chevron = document.getElementById("submissionsChevron");
       const isOpen = content.style.display !== "none";
 
       if (isOpen) {
         content.style.display = "none";
-        if (chevron) chevron.textContent = "▶";
         subDropdownToggle.setAttribute("aria-expanded", "false");
       } else {
         content.style.display = "block";
-        if (chevron) chevron.textContent = "▼";
         subDropdownToggle.setAttribute("aria-expanded", "true");
       }
     });
