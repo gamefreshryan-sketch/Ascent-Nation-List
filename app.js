@@ -244,6 +244,35 @@ function openPlayerProfile(playerName) {
   renderProfile();
 }
 
+// ==========================================
+// GLOBAL MFA CHALLENGE PROMPT
+// ==========================================
+async function promptMfaChallenge(usernameOrEmail) {
+  currentPendingMfaUsername = usernameOrEmail;
+  mfaFailedAttempts = 0;
+
+  const { data: factors, error: factorsErr } = await supabaseClient.auth.mfa.listFactors();
+  const totpFactor = factors?.totp?.find(f => f.status === 'verified');
+
+  if (factorsErr || !totpFactor) {
+    alert("MFA factor error. Please sign in again.");
+    await supabaseClient.auth.signOut();
+    return;
+  }
+
+  currentMfaFactorId = totpFactor.id;
+  const challengeInput = document.getElementById("mfaChallengeInput");
+  const challengeError = document.getElementById("mfaChallengeError");
+  if (challengeInput) challengeInput.value = "";
+  if (challengeError) challengeError.textContent = "";
+
+  const challengeModal = document.getElementById("mfaChallengeModal");
+  if (challengeModal) {
+    challengeModal.classList.add("active");
+    if (challengeInput) challengeInput.focus();
+  }
+}
+
 async function checkAuthSession() {
   const { data: { session } } = await supabaseClient.auth.getSession();
   if (session && session.user) {
@@ -2119,33 +2148,6 @@ function setupAuth() {
       signupBtn.disabled = false;
     }
   });
-
-  // MFA 1: Prompt Challenge Modal
-  async function promptMfaChallenge(usernameOrEmail) {
-    currentPendingMfaUsername = usernameOrEmail;
-    mfaFailedAttempts = 0;
-
-    const { data: factors, error: factorsErr } = await supabaseClient.auth.mfa.listFactors();
-    const totpFactor = factors?.totp?.find(f => f.status === 'verified');
-
-    if (factorsErr || !totpFactor) {
-      alert("MFA factor error. Please sign in again.");
-      await supabaseClient.auth.signOut();
-      return;
-    }
-
-    currentMfaFactorId = totpFactor.id;
-    const challengeInput = document.getElementById("mfaChallengeInput");
-    const challengeError = document.getElementById("mfaChallengeError");
-    if (challengeInput) challengeInput.value = "";
-    if (challengeError) challengeError.textContent = "";
-
-    const challengeModal = document.getElementById("mfaChallengeModal");
-    if (challengeModal) {
-      challengeModal.classList.add("active");
-      if (challengeInput) challengeInput.focus();
-    }
-  }
 
   // MFA 2: Verify Challenge Form Submission
   document.getElementById("mfaChallengeForm")?.addEventListener("submit", async (e) => {
