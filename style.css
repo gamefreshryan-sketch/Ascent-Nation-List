@@ -1852,7 +1852,7 @@ input:focus, select:focus, textarea:focus {
    ========================================================================== */
 .btn-discord-auth {
   width: 100%;
-  margin-top: 14px; /* <-- ADD THIS LINE to clear the close button */
+  margin-top: 25px; /* <-- ADD THIS LINE to clear the close button */
   background: #5865F2;
   color: #ffffff;
   border: none;
