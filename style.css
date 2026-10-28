@@ -1477,3 +1477,329 @@ input:focus, select:focus, textarea:focus {
     align-self: flex-start;
   }
 }
+
+/* ==========================================================================
+   ABOUT US PAGE STYLING
+   ========================================================================== */
+.about-container {
+  max-width: 1000px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.about-hero-card {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.12) 0%, rgba(22, 25, 34, 0.95) 100%);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: var(--radius-lg);
+  padding: 32px;
+  box-shadow: var(--shadow-card), 0 0 30px rgba(56, 189, 248, 0.08);
+}
+
+.about-subtag {
+  display: inline-block;
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.about-hero-card h2 {
+  font-family: var(--font-heading);
+  font-size: 2.2rem;
+  font-weight: 800;
+  margin-bottom: 12px;
+  color: var(--text-main);
+}
+
+.about-lead {
+  font-size: 1.05rem;
+  color: #cbd5e1;
+  max-width: 750px;
+  line-height: 1.6;
+}
+
+.about-hero-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+.about-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.about-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.about-card p {
+  color: #cbd5e1;
+  font-size: 0.92rem;
+  line-height: 1.65;
+}
+
+.about-card.highlight-card {
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.card-title-row h3 {
+  font-family: var(--font-heading);
+  font-size: 1.25rem;
+  color: var(--text-main);
+}
+
+.icon-bubble {
+  font-size: 1.2rem;
+}
+
+/* Jump Demonstration Box */
+.journey-box {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  text-align: center;
+  gap: 12px;
+  margin: 6px 0;
+}
+
+.journey-step {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.journey-step .step-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.journey-step strong {
+  font-size: 1rem;
+  color: var(--text-main);
+}
+
+.demon-tag {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+
+.demon-tag.insane {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.4);
+}
+
+.demon-tag.top {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+
+.journey-arrow {
+  color: var(--accent-gold);
+  font-size: 1.4rem;
+  font-weight: 800;
+}
+
+.philosophy-callout {
+  background: rgba(56, 189, 248, 0.06);
+  border-left: 3px solid var(--accent);
+  padding: 12px 16px;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.philosophy-callout strong {
+  color: var(--accent);
+  display: block;
+  font-size: 0.88rem;
+  margin-bottom: 4px;
+}
+
+.philosophy-callout p {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #e2e8f0;
+}
+
+/* Staff & Team Grid */
+.about-team-section {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px;
+  box-shadow: var(--shadow-card);
+}
+
+.team-header {
+  margin-bottom: 20px;
+}
+
+.team-header h3 {
+  font-family: var(--font-heading);
+  font-size: 1.3rem;
+  margin-bottom: 4px;
+}
+
+.team-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.team-member-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.team-member-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+.team-member-card.leader {
+  border-color: rgba(245, 158, 11, 0.5);
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.08), var(--bg-card));
+}
+
+.member-avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
+.member-avatar.mod {
+  background: linear-gradient(135deg, #0284c7, #38bdf8);
+}
+
+.member-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.member-info strong {
+  font-size: 0.95rem;
+  color: var(--text-main);
+}
+
+.role-badge {
+  display: inline-block;
+  align-self: flex-start;
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 1px 7px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 2px 0;
+}
+
+.role-badge.role-owner {
+  background: rgba(245, 158, 11, 0.2);
+  color: var(--accent-gold);
+  border: 1px solid var(--accent-gold);
+}
+
+.role-badge.role-mod {
+  background: rgba(56, 189, 248, 0.15);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+.member-desc {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+/* Former Staff Section */
+.former-staff-box {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.former-staff-box h4 {
+  font-family: var(--font-heading);
+  font-size: 0.95rem;
+  color: var(--accent-gold);
+  margin-bottom: 4px;
+}
+
+.former-badges-list {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.former-badge {
+  background: var(--bg-card);
+  border: 1px dashed var(--border);
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  color: #cbd5e1;
+}
+
+.former-badge small {
+  color: var(--text-muted);
+  margin-left: 4px;
+}
+
+@media (max-width: 768px) {
+  .about-grid {
+    grid-template-columns: 1fr;
+  }
+  .journey-box {
+    flex-direction: column;
+  }
+  .journey-arrow {
+    transform: rotate(90deg);
+  }
+}

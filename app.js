@@ -1561,6 +1561,8 @@ function setupNavigation() {
         renderProfile();
       } else if (tab === "rules") {
         document.getElementById("rulesView").classList.add("active");
+      } else if (tab === "about") {
+        document.getElementById("aboutView").classList.add("active");
       } else if (tab === "queue") {
         document.getElementById("queueView").classList.add("active");
         renderQueue();
