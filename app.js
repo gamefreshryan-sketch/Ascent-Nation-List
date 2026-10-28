@@ -162,7 +162,6 @@ function openPlayerProfile(playerName) {
   document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
   document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
 
-  // Only highlight the profile tab button if the user is currently logged in
   const profileBtn = document.getElementById("profileTabBtn");
   if (profileBtn && currentUser) {
     profileBtn.classList.add("active");
@@ -221,7 +220,6 @@ function setLoggedInState() {
     el.style.display = isModerator ? "inline-block" : "none";
   });
 
-  // Show profile navigation button in the navbar when authenticated
   const profileTabBtn = document.getElementById("profileTabBtn");
   if (profileTabBtn) {
     profileTabBtn.style.display = "inline-flex";
@@ -247,7 +245,6 @@ function setLoggedOutState() {
     el.style.display = "none";
   });
 
-  // Hide the profile navigation button from the menu bar when logged out
   const profileTabBtn = document.getElementById("profileTabBtn");
   if (profileTabBtn) {
     profileTabBtn.style.display = "none";
@@ -260,7 +257,6 @@ function setLoggedOutState() {
     document.getElementById("authModal").classList.add("active");
   };
 
-  // If currently looking at own profile, return to main list
   if (currentTab === "profile" && !activeProfilePlayer) {
     currentTab = "main";
     document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
@@ -363,7 +359,7 @@ async function refreshQueueState() {
   }
 
   if (currentTab === "profile") {
-    renderProfileSubmissions();
+    await renderProfileSubmissions(true);
   }
 
   checkSubmissionRestrictions();
@@ -381,18 +377,19 @@ function populateDropdowns() {
   if (adminSelect) adminSelect.innerHTML = optionsHtml;
 }
 
+// Fixed Loophole 1: Prevent verifier points duplication from victors table
 function calculateAllPlayerStats() {
   const playerStats = {};
 
   currentLevels.forEach(level => {
     const basePts = calculatePoints(level.rank);
     const minReq = level.min_percentage ? parseInt(level.min_percentage, 10) : 100;
+    const vNameClean = level.verifier ? level.verifier.trim() : null;
 
     // Credit Verifier
-    if (level.verifier) {
-      const vName = level.verifier.trim();
-      if (!playerStats[vName]) {
-        playerStats[vName] = {
+    if (vNameClean) {
+      if (!playerStats[vNameClean]) {
+        playerStats[vNameClean] = {
           points: 0,
           completions: 0,
           progressions: 0,
@@ -402,9 +399,9 @@ function calculateAllPlayerStats() {
         };
       }
       const verifierPts = basePts * (1 + SETTINGS.verifierBonusPct);
-      playerStats[vName].points += verifierPts;
-      playerStats[vName].verifications += 1;
-      playerStats[vName].verifiedLevels.push({
+      playerStats[vNameClean].points += verifierPts;
+      playerStats[vNameClean].verifications += 1;
+      playerStats[vNameClean].verifiedLevels.push({
         id: level.id,
         rank: level.rank,
         name: level.name,
@@ -433,8 +430,13 @@ function calculateAllPlayerStats() {
           };
         }
 
+        const isLevelVerifier = vNameClean && (pName.toLowerCase() === vNameClean.toLowerCase());
         const earnedPoints = calculatePointsForRecord(level.rank, pct, minReq);
-        playerStats[pName].points += earnedPoints;
+
+        // Only add points if player did not already get verifier bonus points for this level
+        if (!isLevelVerifier) {
+          playerStats[pName].points += earnedPoints;
+        }
 
         if (pct === 100) {
           playerStats[pName].completions += 1;
@@ -448,9 +450,10 @@ function calculateAllPlayerStats() {
           name: level.name,
           device: victor.device,
           proof_url: victor.proof_url,
-          points: earnedPoints,
+          points: isLevelVerifier ? 0 : earnedPoints,
           percentage: pct,
-          isCompletion: pct === 100
+          isCompletion: pct === 100,
+          isVerifierRecord: isLevelVerifier
         });
       });
     }
@@ -578,6 +581,7 @@ async function renderProfile() {
     if (records.length > 0) {
       beatenContainer.innerHTML = records.map(lvl => {
         const validatedUrl = safeUrl(lvl.proof_url);
+        const ptsDisplay = lvl.isVerifierRecord ? "Included in Verifier Bonus" : `+${lvl.points.toFixed(2)} pts`;
         return `
           <div class="profile-level-row">
             <div>
@@ -586,7 +590,7 @@ async function renderProfile() {
               <span class="text-muted" style="font-size: 0.8rem; margin-left: 6px;">(${escapeHtml(lvl.device || 'PC')})</span>
             </div>
             <div style="display: flex; gap: 10px; align-items: center;">
-              <span style="color: var(--accent); font-weight: 600;">+${lvl.points.toFixed(2)} pts</span>
+              <span style="color: var(--accent); font-weight: 600;">${ptsDisplay}</span>
               ${validatedUrl ? `<a href="${validatedUrl}" target="_blank" rel="noopener noreferrer">Proof</a>` : ''}
             </div>
           </div>
@@ -621,10 +625,11 @@ async function renderProfile() {
     document.getElementById("profileVerifiedList").innerHTML = `<p class="text-muted">No verified levels.</p>`;
   }
 
-  renderProfileSubmissions(isViewingSelf);
+  await renderProfileSubmissions(isViewingSelf);
 }
 
-function renderProfileSubmissions(isViewingSelf) {
+// Fixed Loophole 4: Use RPC get_submission_queue_pos to query accurate global position
+async function renderProfileSubmissions(isViewingSelf) {
   const container = document.getElementById("myPrivateSubmissionsCard");
   const list = document.getElementById("profileSubmissionsList");
   const countBadge = document.getElementById("mySubmissionsCountBadge");
@@ -637,7 +642,6 @@ function renderProfileSubmissions(isViewingSelf) {
   container.style.display = "block";
   const mySubmissions = pendingSubmissionsCache.filter(s => s.user_id === currentUser.id);
 
-  // Update submissions badge count on the dropdown header
   if (countBadge) {
     if (mySubmissions.length > 0) {
       countBadge.textContent = mySubmissions.length;
@@ -652,7 +656,17 @@ function renderProfileSubmissions(isViewingSelf) {
     return;
   }
 
-  const globalPending = pendingSubmissionsCache.filter(s => s.status === 'pending');
+  const queuePositions = {};
+  for (const sub of mySubmissions) {
+    if (sub.status === 'pending') {
+      try {
+        const { data: posData } = await supabaseClient.rpc('get_submission_queue_pos', { sub_id: sub.id });
+        if (posData) queuePositions[sub.id] = posData;
+      } catch (err) {
+        console.warn("Could not retrieve queue position for submission:", sub.id);
+      }
+    }
+  }
 
   list.innerHTML = mySubmissions.map(sub => {
     let levelTitle = "";
@@ -667,10 +681,11 @@ function renderProfileSubmissions(isViewingSelf) {
     let queuePosText = "";
 
     if (sub.status === 'pending') {
-      const qIndex = globalPending.findIndex(p => p.id === sub.id);
-      const pos = qIndex >= 0 ? qIndex + 1 : 1;
+      const qInfo = queuePositions[sub.id];
+      const pos = qInfo ? qInfo.position : 1;
+      const total = qInfo ? qInfo.total : 1;
       statusBadge = `<span class="status-badge badge-pending">ON HOLD</span>`;
-      queuePosText = `<span class="queue-pos-indicator">Queue Position: #${pos} of ${globalPending.length}</span>`;
+      queuePosText = `<span class="queue-pos-indicator">Queue Position: #${pos} of ${total}</span>`;
     } else if (sub.status === 'accepted') {
       statusBadge = `<span class="status-badge badge-accepted">ACCEPTED</span>`;
       queuePosText = `<span class="text-muted" style="font-size:0.8rem;">Reviewed by ${escapeHtml(sub.reviewed_by || 'Moderator')}</span>`;
@@ -810,7 +825,7 @@ function renderQueue() {
   }).join("");
 }
 
-// 1. Direct Quick Accept (Completions)
+// Fixed Loophole 2: Check for existing victor and update if new percentage is higher
 async function approveSubmission(subId) {
   if (!isModerator) return;
   const sub = pendingSubmissionsCache.find(s => s.id == subId);
@@ -823,20 +838,51 @@ async function approveSubmission(subId) {
 
   const modName = currentProfile?.username || "Moderator";
 
-  const { error: vicErr } = await supabaseClient
+  const { data: existingVictor, error: fetchErr } = await supabaseClient
     .from('victors')
-    .insert([{
-      level_id: sub.level_id,
-      player_name: sub.player_name,
-      user_id: sub.user_id,
-      percentage: sub.percentage,
-      proof_url: sub.proof_url,
-      device: sub.device
-    }]);
+    .select('id, percentage')
+    .eq('level_id', sub.level_id)
+    .ilike('player_name', sub.player_name.trim())
+    .maybeSingle();
 
-  if (vicErr) {
-    alert("Error placing victor record: " + vicErr.message);
+  if (fetchErr) {
+    alert("Error verifying existing records: " + fetchErr.message);
     return;
+  }
+
+  if (existingVictor) {
+    if (sub.percentage > existingVictor.percentage) {
+      const { error: updateErr } = await supabaseClient
+        .from('victors')
+        .update({
+          percentage: sub.percentage,
+          proof_url: sub.proof_url,
+          device: sub.device,
+          user_id: sub.user_id
+        })
+        .eq('id', existingVictor.id);
+
+      if (updateErr) {
+        alert("Error upgrading victor record: " + updateErr.message);
+        return;
+      }
+    }
+  } else {
+    const { error: insertErr } = await supabaseClient
+      .from('victors')
+      .insert([{
+        level_id: sub.level_id,
+        player_name: sub.player_name,
+        user_id: sub.user_id,
+        percentage: sub.percentage,
+        proof_url: sub.proof_url,
+        device: sub.device
+      }]);
+
+    if (insertErr) {
+      alert("Error placing victor record: " + insertErr.message);
+      return;
+    }
   }
 
   await supabaseClient
@@ -859,7 +905,6 @@ async function approveSubmission(subId) {
   await refreshQueueState();
 }
 
-// 2. Open Manual Accept Modal
 function openManualAcceptModal(subId) {
   const sub = pendingSubmissionsCache.find(s => s.id == subId);
   if (!sub) return;
@@ -889,7 +934,6 @@ function openManualAcceptModal(subId) {
   document.getElementById("manualAcceptModal").classList.add("active");
 }
 
-// Deny submission
 async function denySubmission(subId, reason) {
   if (!isModerator) return;
   const sub = pendingSubmissionsCache.find(s => s.id == subId);
@@ -1148,11 +1192,13 @@ function setupForms() {
     });
   }
 
-  // 1. Submit Record to Queue Form
+  // 1. Submit Record to Queue Form (Fixed Loophole 6: Disable button during submission)
   const recordSubForm = document.getElementById("recordSubmissionForm");
   if (recordSubForm) {
     recordSubForm.addEventListener("submit", async (e) => {
       e.preventDefault();
+      const submitBtn = document.getElementById("submitRecordBtn");
+
       if (!currentUser) {
         alert("Please sign in or register to submit a record.");
         return;
@@ -1212,21 +1258,30 @@ function setupForms() {
         payload.percentage = parseInt(document.getElementById("subPercentage").value, 10);
       }
 
-      const { error } = await supabaseClient.from('submissions').insert([payload]);
+      submitBtn.disabled = true;
+      const originalText = submitBtn.textContent;
+      submitBtn.textContent = "Submitting to Queue...";
 
-      if (error) {
-        alert("Error submitting record: " + error.message);
-      } else {
-        alert("Record submitted successfully! It is now on hold in the queue.");
-        recordSubForm.reset();
-        document.getElementById("subType").value = "completion";
-        document.getElementById("subType").dispatchEvent(new Event('change'));
-        await refreshQueueState();
+      try {
+        const { error } = await supabaseClient.from('submissions').insert([payload]);
+
+        if (error) {
+          alert("Error submitting record: " + error.message);
+        } else {
+          alert("Record submitted successfully! It is now on hold in the queue.");
+          recordSubForm.reset();
+          document.getElementById("subType").value = "completion";
+          document.getElementById("subType").dispatchEvent(new Event('change'));
+          await refreshQueueState();
+        }
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
       }
     });
   }
 
-  // 2. Manual Accept Submission Form
+  // 2. Manual Accept Submission Form (Fixed Loophole 2 & 3: Shifting ranks + progress updates)
   const manualForm = document.getElementById("manualAcceptForm");
   if (manualForm) {
     manualForm.addEventListener("submit", async (e) => {
@@ -1249,85 +1304,119 @@ function setupForms() {
         return;
       }
 
-      const sub = pendingSubmissionsCache.find(s => s.id == subId);
+      const submitBtn = manualForm.querySelector("button[type='submit']");
+      submitBtn.disabled = true;
 
-      const rankTaken = currentLevels.some(l => l.rank === rank && l.id !== sub?.level_id);
-      if (rankTaken) {
-        if (!confirm(`Warning: Rank #${rank} is currently occupied. Do you want to proceed inserting anyway?`)) {
-          return;
+      try {
+        const sub = pendingSubmissionsCache.find(s => s.id == subId);
+        const rankTaken = currentLevels.some(l => l.rank === rank && l.id !== sub?.level_id);
+
+        if (rankTaken) {
+          if (!confirm(`Rank #${rank} is occupied. Shift subsequent levels down by 1?`)) {
+            submitBtn.disabled = false;
+            return;
+          }
+          const { error: shiftErr } = await supabaseClient.rpc('shift_levels_for_insertion', { new_rank: rank });
+          if (shiftErr) {
+            alert("Error shifting levels: " + shiftErr.message);
+            submitBtn.disabled = false;
+            return;
+          }
         }
-      }
 
-      let targetLevelId = sub?.level_id;
+        let targetLevelId = sub?.level_id;
 
-      if (!targetLevelId || sub?.type === 'verification') {
-        const { data: newLevel, error: lvlErr } = await supabaseClient
-          .from('levels')
-          .insert([{
-            rank: rank,
-            name: name,
-            creator: creator,
-            verifier: verifier,
-            length: length,
-            min_percentage: minPct,
-            video_url: video,
-            description: desc
-          }])
-          .select()
-          .single();
+        if (!targetLevelId || sub?.type === 'verification') {
+          const { data: newLevel, error: lvlErr } = await supabaseClient
+            .from('levels')
+            .insert([{
+              rank: rank,
+              name: name,
+              creator: creator,
+              verifier: verifier,
+              length: length,
+              min_percentage: minPct,
+              video_url: video,
+              description: desc
+            }])
+            .select()
+            .single();
 
-        if (lvlErr) {
-          alert("Error publishing level: " + lvlErr.message);
-          return;
+          if (lvlErr) {
+            alert("Error publishing level: " + lvlErr.message);
+            submitBtn.disabled = false;
+            return;
+          }
+          targetLevelId = newLevel.id;
+        } else {
+          await supabaseClient
+            .from('levels')
+            .update({
+              rank: rank,
+              name: name,
+              creator: creator,
+              verifier: verifier,
+              length: length,
+              min_percentage: minPct,
+              video_url: video,
+              description: desc
+            })
+            .eq('id', targetLevelId);
         }
-        targetLevelId = newLevel.id;
-      } else {
-        await supabaseClient
-          .from('levels')
-          .update({
-            rank: rank,
-            name: name,
-            creator: creator,
-            verifier: verifier,
-            length: length,
-            min_percentage: minPct,
-            video_url: video,
-            description: desc
-          })
-          .eq('id', targetLevelId);
+
+        const pctToRecord = sub ? sub.percentage : 100;
+        const { data: existingVictor } = await supabaseClient
+          .from('victors')
+          .select('id, percentage')
+          .eq('level_id', targetLevelId)
+          .ilike('player_name', verifier.trim())
+          .maybeSingle();
+
+        if (existingVictor) {
+          if (pctToRecord > existingVictor.percentage) {
+            await supabaseClient.from('victors').update({
+              percentage: pctToRecord,
+              proof_url: video,
+              device: device,
+              user_id: sub ? sub.user_id : null
+            }).eq('id', existingVictor.id);
+          }
+        } else {
+          await supabaseClient.from('victors').insert([{
+            level_id: targetLevelId,
+            player_name: verifier,
+            user_id: sub ? sub.user_id : null,
+            percentage: pctToRecord,
+            proof_url: video,
+            device: device
+          }]);
+        }
+
+        if (sub) {
+          const modName = currentProfile?.username || "Moderator";
+          await supabaseClient
+            .from('submissions')
+            .update({
+              status: 'accepted',
+              reviewed_by: modName,
+              reviewed_at: new Date().toISOString()
+            })
+            .eq('id', sub.id);
+        }
+
+        await logModeratorAction(
+          "MANUAL_ACCEPT_LEVEL",
+          name,
+          `Moderator manual-accepted level at #${rank} verified by ${verifier}`
+        );
+
+        alert(`Level "${name}" successfully placed at #${rank}!`);
+        document.getElementById("manualAcceptModal").classList.remove("active");
+        await fetchLevelsFromDB();
+        await refreshQueueState();
+      } finally {
+        submitBtn.disabled = false;
       }
-
-      await supabaseClient.from('victors').insert([{
-        level_id: targetLevelId,
-        player_name: verifier,
-        user_id: sub ? sub.user_id : null,
-        percentage: sub ? sub.percentage : 100,
-        proof_url: video,
-        device: device
-      }]);
-
-      if (sub) {
-        const modName = currentProfile?.username || "Moderator";
-        await supabaseClient
-          .from('submissions')
-          .update({
-            status: 'accepted',
-            reviewed_by: modName,
-            reviewed_at: new Date().toISOString()
-          })
-          .eq('id', sub.id);
-      }
-
-      await logModeratorAction(
-        "MANUAL_ACCEPT_LEVEL",
-        name,
-        `Moderator manual-accepted level at #${rank} verified by ${verifier}`
-      );
-
-      alert(`Level "${name}" successfully placed at #${rank}!`);
-      document.getElementById("manualAcceptModal").classList.remove("active");
-      await fetchLevelsFromDB();
-      await refreshQueueState();
     });
   }
 
@@ -1345,10 +1434,11 @@ function setupForms() {
     }
   });
 
-  // 4. Direct Victor Add
+  // 4. Direct Victor Add (Fixed Loophole 2: Check & update higher progress)
   document.getElementById("addVictorForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!isModerator) return;
+
     const levelId = document.getElementById("victorLevelSelect").value;
     const playerName = document.getElementById("victorPlayerName").value.trim();
     const percentage = parseInt(document.getElementById("victorPercentage").value, 10) || 100;
@@ -1358,6 +1448,33 @@ function setupForms() {
 
     if (!validatedProof) {
       alert("Please enter a valid proof URL.");
+      return;
+    }
+
+    const { data: existingVictor } = await supabaseClient
+      .from('victors')
+      .select('id, percentage')
+      .eq('level_id', levelId)
+      .ilike('player_name', playerName)
+      .maybeSingle();
+
+    if (existingVictor) {
+      if (percentage > existingVictor.percentage) {
+        const { error: upErr } = await supabaseClient
+          .from('victors')
+          .update({ percentage: percentage, proof_url: validatedProof, device: device })
+          .eq('id', existingVictor.id);
+
+        if (upErr) alert("Database error: " + upErr.message);
+        else {
+          await logModeratorAction("DIRECT_RECORD_UPGRADE", playerName, `Upgraded to ${percentage}% on level ID ${levelId}`);
+          alert(`Record upgraded for ${playerName}!`);
+          document.getElementById("addVictorForm").reset();
+          await fetchLevelsFromDB();
+        }
+      } else {
+        alert(`Player already has an equal or better record (${existingVictor.percentage}%) on this level.`);
+      }
       return;
     }
 
@@ -1374,10 +1491,11 @@ function setupForms() {
     }
   });
 
-  // 5. Direct Level Add
+  // 5. Direct Level Add (Fixed Loophole 3: Shift levels on occupied rank)
   document.getElementById("addLevelForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!isModerator) return;
+
     const rank = parseInt(document.getElementById("levelRank").value, 10);
     const name = document.getElementById("levelName").value.trim();
     const length = document.getElementById("levelLength").value.trim();
@@ -1391,6 +1509,18 @@ function setupForms() {
     if (!validatedVideo) {
       alert("Please enter a valid HTTP/HTTPS video URL.");
       return;
+    }
+
+    const rankTaken = currentLevels.some(l => l.rank === rank);
+    if (rankTaken) {
+      if (!confirm(`Rank #${rank} is occupied. Shift subsequent levels down by 1?`)) {
+        return;
+      }
+      const { error: shiftErr } = await supabaseClient.rpc('shift_levels_for_insertion', { new_rank: rank });
+      if (shiftErr) {
+        alert("Error shifting levels: " + shiftErr.message);
+        return;
+      }
     }
 
     const { error: insertError } = await supabaseClient.from('levels').insert([{ 
@@ -1434,9 +1564,14 @@ function setupModModals() {
     document.getElementById("manualAcceptModal").classList.remove("active");
   };
 
+  // Timeout Modal
   const punishModal = document.getElementById("punishModal");
   document.getElementById("openPunishModalBtn")?.addEventListener("click", () => {
     if (!targetBanProfile) return;
+    if (targetBanProfile.is_mod || targetBanProfile.username.toLowerCase() === "ascent") {
+      alert("Action Denied: You cannot punish or timeout a moderator or the list owner.");
+      return;
+    }
     document.getElementById("punishReason").value = "";
     punishModal.classList.add("active");
   });
@@ -1444,6 +1579,12 @@ function setupModModals() {
 
   document.getElementById("confirmPunishBtn")?.addEventListener("click", async () => {
     if (!targetBanProfile || !isModerator) return;
+
+    if (targetBanProfile.is_mod || targetBanProfile.username.toLowerCase() === "ascent") {
+      alert("Action Denied: You cannot punish or timeout a moderator or the list owner.");
+      return;
+    }
+
     const duration = document.getElementById("punishDuration").value;
     const reason = document.getElementById("punishReason").value.trim();
     if (!reason) { alert("Please provide a reason."); return; }
@@ -1466,9 +1607,14 @@ function setupModModals() {
     }
   });
 
+  // Ban Modal (Fixed Loophole 5: Frontend guard protecting owner and mods)
   const banModal = document.getElementById("banModal");
   document.getElementById("openBanModalBtn")?.addEventListener("click", () => {
     if (!targetBanProfile) return;
+    if (targetBanProfile.is_mod || targetBanProfile.username.toLowerCase() === "ascent") {
+      alert("Action Denied: You cannot ban a moderator or the list owner.");
+      return;
+    }
     document.getElementById("banReasonInput").value = "";
     banModal.classList.add("active");
   });
@@ -1476,14 +1622,25 @@ function setupModModals() {
 
   document.getElementById("confirmBanBtn")?.addEventListener("click", async () => {
     if (!targetBanProfile || !isModerator) return;
+
+    if (targetBanProfile.is_mod || targetBanProfile.username.toLowerCase() === "ascent") {
+      alert("Action Denied: You cannot ban a moderator or the list owner.");
+      return;
+    }
+
     const reason = document.getElementById("banReasonInput").value.trim();
     if (!reason) { alert("Reason required."); return; }
     if (!confirm(`Are you 100% sure you want to BAN ${targetBanProfile.username}?`)) return;
 
     const modName = currentProfile?.username || "Moderator";
-    await supabaseClient.from('profiles').update({
+    const { error: banErr } = await supabaseClient.from('profiles').update({
       is_banned: true, ban_reason: reason, banned_at: new Date().toISOString(), banned_by: modName
     }).eq('id', targetBanProfile.id);
+
+    if (banErr) {
+      alert("Ban operation halted: " + banErr.message);
+      return;
+    }
 
     await supabaseClient.from('victors').delete().eq('player_name', targetBanProfile.username);
     await supabaseClient.from('victors').delete().eq('user_id', targetBanProfile.id);
@@ -1530,7 +1687,6 @@ function setupNavigation() {
     });
   }
 
-  // Handle Tab Switch
   const allNavButtons = document.querySelectorAll(".nav-btn, .mod-dropdown-item");
   allNavButtons.forEach(btn => {
     btn.addEventListener("click", () => {
@@ -1556,7 +1712,7 @@ function setupNavigation() {
         document.getElementById("submitView").classList.add("active");
         checkSubmissionRestrictions();
       } else if (tab === "profile") {
-        activeProfilePlayer = null; // Always open current user's profile when clicking the navbar tab
+        activeProfilePlayer = null;
         document.getElementById("profileView").classList.add("active");
         renderProfile();
       } else if (tab === "rules") {
@@ -1575,7 +1731,6 @@ function setupNavigation() {
     });
   });
 
-  // Collapsible Dropdown Toggle for Submissions Tracker
   const subDropdownToggle = document.getElementById("submissionsDropdownToggle");
   if (subDropdownToggle) {
     subDropdownToggle.addEventListener("click", () => {
