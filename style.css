@@ -1361,6 +1361,7 @@ input:focus, select:focus, textarea:focus {
   cursor: pointer;
   color: var(--text-muted);
   transition: color 0.15s;
+  z-index: 10; /* <-- Guarantees it is always on top */
 }
 
 .close-btn:hover {
@@ -1851,6 +1852,7 @@ input:focus, select:focus, textarea:focus {
    ========================================================================== */
 .btn-discord-auth {
   width: 100%;
+  margin-top: 14px; /* <-- ADD THIS LINE to clear the close button */
   background: #5865F2;
   color: #ffffff;
   border: none;
