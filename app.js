@@ -2115,7 +2115,7 @@ function setupAuth() {
     location.reload();
   });
 
-  // MFA 4: Setup 2FA Button in Profile
+  // MFA 4: Setup 2FA Button in Profile (Auto-cleans stale unverified factors)
   document.getElementById("openMfaSetupBtn")?.addEventListener("click", async () => {
     const enrollModal = document.getElementById("mfaEnrollModal");
     const qrContainer = document.getElementById("mfaQrContainer");
@@ -2126,38 +2126,59 @@ function setupAuth() {
     if (qrContainer) qrContainer.innerHTML = `<div class="loading">Generating QR code...</div>`;
     if (enrollModal) enrollModal.classList.add("active");
 
-    const { data, error } = await supabaseClient.auth.mfa.enroll({
-      factorType: 'totp',
-      friendlyName: currentUser?.email || 'Ascent Nation List'
-    });
-
-    if (error) {
-      if (errorEl) errorEl.textContent = "Error enrolling MFA: " + error.message;
-      return;
-    }
-
-    currentEnrollingFactorId = data.id;
-    if (secretText) secretText.textContent = data.totp.secret;
-
-    if (qrContainer) {
-      const rawQr = data.totp.qr_code;
-      if (rawQr.includes('<svg')) {
-        // Extract the pure SVG markup directly to avoid HTML quote collision
-        const svgMarkup = rawQr.slice(rawQr.indexOf('<svg'));
-        qrContainer.innerHTML = svgMarkup;
-      } else {
-        // Safe DOM property assignment (no HTML string interpolation)
-        const img = document.createElement('img');
-        img.src = rawQr;
-        img.alt = 'QR Code';
-        qrContainer.innerHTML = '';
-        qrContainer.appendChild(img);
+    try {
+      // 1. Remove any previous unverified/abandoned factors
+      const { data: existingFactors } = await supabaseClient.auth.mfa.listFactors();
+      if (existingFactors?.totp?.length > 0) {
+        for (const factor of existingFactors.totp) {
+          if (factor.status === 'unverified') {
+            await supabaseClient.auth.mfa.unenroll({ factorId: factor.id });
+          }
+        }
       }
+
+      // 2. Enroll a clean, fresh factor
+      const { data, error } = await supabaseClient.auth.mfa.enroll({
+        factorType: 'totp',
+        issuer: 'Ascent Nation List',
+        friendlyName: currentUser?.email || 'Ascent'
+      });
+
+      if (error) {
+        if (errorEl) errorEl.textContent = "Error enrolling MFA: " + error.message;
+        return;
+      }
+
+      currentEnrollingFactorId = data.id;
+      if (secretText) secretText.textContent = data.totp.secret;
+
+      // 3. Render clean SVG (no quote collisions)
+      if (qrContainer) {
+        const rawQr = data.totp.qr_code;
+        if (rawQr && rawQr.includes('<svg')) {
+          qrContainer.innerHTML = rawQr.slice(rawQr.indexOf('<svg'));
+        } else if (rawQr) {
+          const img = document.createElement('img');
+          img.src = rawQr;
+          img.alt = 'QR Code';
+          qrContainer.innerHTML = '';
+          qrContainer.appendChild(img);
+        }
+      }
+    } catch (err) {
+      if (errorEl) errorEl.textContent = "Setup error: " + err.message;
     }
   });
 
-  document.getElementById("closeMfaEnrollModal")?.addEventListener("click", () => {
+  // Clean up if user closes modal before completing verification
+  document.getElementById("closeMfaEnrollModal")?.addEventListener("click", async () => {
     document.getElementById("mfaEnrollModal")?.classList.remove("active");
+    if (currentEnrollingFactorId) {
+      try {
+        await supabaseClient.auth.mfa.unenroll({ factorId: currentEnrollingFactorId });
+        currentEnrollingFactorId = null;
+      } catch (_) {}
+    }
   });
 
   // MFA 5: Verify and Activate 2FA Enrollment Form
