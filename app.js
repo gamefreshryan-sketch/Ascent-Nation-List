@@ -2140,12 +2140,18 @@ function setupAuth() {
     if (secretText) secretText.textContent = data.totp.secret;
 
     if (qrContainer) {
-      if (data.totp.qr_code.startsWith('data:image')) {
-        qrContainer.innerHTML = `<img src="${data.totp.qr_code}" alt="QR Code">`;
-      } else if (data.totp.qr_code.startsWith('<svg')) {
-        qrContainer.innerHTML = data.totp.qr_code;
+      const rawQr = data.totp.qr_code;
+      if (rawQr.includes('<svg')) {
+        // Extract the pure SVG markup directly to avoid HTML quote collision
+        const svgMarkup = rawQr.slice(rawQr.indexOf('<svg'));
+        qrContainer.innerHTML = svgMarkup;
       } else {
-        qrContainer.innerHTML = `<img src="${data.totp.qr_code}" alt="QR Code">`;
+        // Safe DOM property assignment (no HTML string interpolation)
+        const img = document.createElement('img');
+        img.src = rawQr;
+        img.alt = 'QR Code';
+        qrContainer.innerHTML = '';
+        qrContainer.appendChild(img);
       }
     }
   });
