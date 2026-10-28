@@ -494,28 +494,6 @@
           </div>
         </div>
 
-        <!-- RECOVERY EMAIL CARD -->
-        <div class="profile-settings-card" id="emailRecoveryCard" style="display: none; margin-top: 20px;">
-          <h3 style="margin-bottom: 4px;">📧 Recovery Email (Password Resets)</h3>
-          <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 14px;" id="emailRecoveryDesc">
-            Link a personal email to enable self-service password recovery if you ever forget your password.
-          </p>
-
-          <form id="updateEmailForm" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-            <input 
-              type="email" 
-              id="recoveryEmailInput" 
-              placeholder="your.email@gmail.com" 
-              style="margin: 0; flex: 1; min-width: 240px;" 
-              required
-            >
-            <button type="submit" id="saveEmailBtn" class="submit-btn" style="width: auto; padding: 10px 20px;">
-              Send Verify Link
-            </button>
-          </form>
-          <div id="emailUpdateNotice" style="font-size: 0.85rem; margin-top: 8px;"></div>
-        </div>
-
         <!-- BIO MANAGEMENT -->
         <div class="profile-settings-card" id="bioEditCard" style="display: none; margin-top: 20px;">
           <h3>Edit Personal Bio</h3>
@@ -789,11 +767,11 @@
       </div>
 
       <form id="loginForm">
-        <label for="loginUsername">Username or Email</label>
+        <label for="loginUsername">Username</label>
         <input 
           type="text" 
           id="loginUsername" 
-          placeholder="Enter username or email" 
+          placeholder="Enter username" 
           required 
           autocomplete="username"
         >

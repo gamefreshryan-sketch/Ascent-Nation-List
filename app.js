@@ -716,26 +716,6 @@ async function renderProfile() {
     discordCard.style.display = "none";
   }
 
-  // 2. Recovery Email Card
-  const emailCard = document.getElementById("emailRecoveryCard");
-  const emailInput = document.getElementById("recoveryEmailInput");
-  const emailDesc = document.getElementById("emailRecoveryDesc");
-
-  if (isViewingSelf && emailCard && currentUser) {
-    emailCard.style.display = "block";
-    const isPseudo = currentUser.email?.endsWith("@anl-player.com");
-
-    if (isPseudo) {
-      emailDesc.innerHTML = `⚠️ <strong style="color: var(--accent-gold);">No recovery email linked:</strong> Using an anonymous account. Link a real email to enable password resets.`;
-      emailInput.value = "";
-    } else {
-      emailDesc.innerHTML = `✓ <strong style="color: var(--success);">Recovery Email Active:</strong> <strong>${escapeHtml(currentUser.email)}</strong>. You can reset passwords via email.`;
-      emailInput.value = currentUser.email;
-    }
-  } else if (emailCard) {
-    emailCard.style.display = "none";
-  }
-
   // 2FA Security Card Visibility in Profile
   const mfaCard = document.getElementById("mfaSecurityCard");
   const mfaStatusText = document.getElementById("mfaStatusText");
@@ -2418,26 +2398,6 @@ function setupAuth() {
       alert("Password updated successfully! You are now logged in.");
       document.getElementById("resetPasswordModal").classList.remove("active");
       location.reload();
-    }
-  });
-
-  // 5. Update / Verify Recovery Email Form
-  document.getElementById("updateEmailForm")?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const newEmail = document.getElementById("recoveryEmailInput").value.trim().toLowerCase();
-    const noticeEl = document.getElementById("emailUpdateNotice");
-    const saveBtn = document.getElementById("saveEmailBtn");
-
-    saveBtn.disabled = true;
-    noticeEl.textContent = "Sending confirmation link...";
-
-    const { error } = await supabaseClient.auth.updateUser({ email: newEmail });
-    saveBtn.disabled = false;
-
-    if (error) {
-      noticeEl.innerHTML = `<span style="color:var(--danger);">Error: ${escapeHtml(error.message)}</span>`;
-    } else {
-      noticeEl.innerHTML = `<span style="color:var(--success);">Confirmation link sent to <strong>${escapeHtml(newEmail)}</strong>. Please click the link in your email to verify.</span>`;
     }
   });
 }
