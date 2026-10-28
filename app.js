@@ -11,8 +11,12 @@ let targetBanProfile = null;
 let pendingSubmissionsCache = [];
 let currentRejectSubmissionId = null;
 
-// Login rate-limiting state
+// Auth Rate-Limiting & MFA State
 let loginLockoutInterval = null;
+let currentMfaFactorId = null;
+let currentPendingMfaUsername = null;
+let mfaFailedAttempts = 0;
+let currentEnrollingFactorId = null;
 
 // Helpers
 function isValidUsername(username) {
@@ -82,30 +86,22 @@ function calculatePointsForRecord(rank, percentage, minReq = 100) {
   return 0;
 }
 
-// ==========================================
-// AUTH RATE-LIMITING HELPERS
-// ==========================================
-
-function checkAndApplyLoginLockout() {
+// Rate Limiting Helpers
+function isLoginLocked() {
   const lockoutUntil = parseInt(localStorage.getItem("anl_login_lockout_until") || "0", 10);
-  const now = Date.now();
-  if (lockoutUntil > now) {
-    const remainingSeconds = Math.ceil((lockoutUntil - now) / 1000);
-    startLoginLockout(remainingSeconds);
-    return true;
-  }
-  return false;
+  return lockoutUntil > Date.now();
 }
 
-function startLoginLockout(seconds, customMessage = null) {
+function applyLoginLockout(remainingSeconds, customMessage = null) {
   const loginSubmitBtn = document.querySelector("#loginForm button[type='submit']");
   const errorEl = document.getElementById("authError");
   if (!loginSubmitBtn || !errorEl) return;
 
+  loginSubmitBtn.disabled = true;
+
   if (loginLockoutInterval) clearInterval(loginLockoutInterval);
 
-  let secondsLeft = seconds;
-  loginSubmitBtn.disabled = true;
+  let secondsLeft = remainingSeconds;
 
   const updateDisplay = () => {
     loginSubmitBtn.textContent = `Locked (${secondsLeft}s)`;
@@ -134,6 +130,17 @@ function startLoginLockout(seconds, customMessage = null) {
   }, 1000);
 }
 
+function checkAndApplyLoginLockout() {
+  const lockoutUntil = parseInt(localStorage.getItem("anl_login_lockout_until") || "0", 10);
+  const now = Date.now();
+  if (lockoutUntil > now) {
+    const remainingSeconds = Math.ceil((lockoutUntil - now) / 1000);
+    applyLoginLockout(remainingSeconds);
+    return true;
+  }
+  return false;
+}
+
 // App Startup
 document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("discordLink").href = safeUrl(SETTINGS.discordUrl) || '#';
@@ -154,7 +161,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 // Click delegation
 function setupDelegatedEvents() {
   document.addEventListener("click", async (e) => {
-    // 1. Player link (works for any visitor logged in or logged out)
+    // 1. Player link
     const playerLink = e.target.closest(".player-link");
     if (playerLink && playerLink.dataset.player) {
       e.preventDefault();
@@ -193,7 +200,7 @@ function setupDelegatedEvents() {
       return;
     }
 
-    // 6. Queue Manual Accept (Edit before placing)
+    // 6. Queue Manual Accept
     const manualBtn = e.target.closest(".manual-accept-sub-btn");
     if (manualBtn && manualBtn.dataset.subId) {
       openManualAcceptModal(manualBtn.dataset.subId);
@@ -235,6 +242,13 @@ async function checkAuthSession() {
   if (session && session.user) {
     currentUser = session.user;
 
+    // Check MFA Assurance Level
+    const { data: aalData } = await supabaseClient.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (aalData && aalData.nextLevel === 'aal2' && aalData.currentLevel !== 'aal2') {
+      await promptMfaChallenge(currentUser.user_metadata?.player_name || currentUser.email);
+      return;
+    }
+
     const { data: prof } = await supabaseClient
       .from('profiles')
       .select('*')
@@ -244,6 +258,17 @@ async function checkAuthSession() {
     if (prof) {
       currentProfile = prof;
       isModerator = prof.is_mod === true;
+
+      // Emergency Lockdown Barrier
+      if (prof.is_locked) {
+        await supabaseClient.auth.signOut();
+        currentUser = null;
+        currentProfile = null;
+        isModerator = false;
+        alert(`🚨 EMERGENCY LOCKDOWN ACTIVE:\n\n${prof.locked_reason || 'This account has been locked due to security protocols.'}\n\nPlease contact the database administrator.`);
+        setLoggedOutState();
+        return;
+      }
 
       if (prof.is_banned) {
         const reason = prof.ban_reason || "Violation of Ascent Nation List rules.";
@@ -434,7 +459,7 @@ function populateDropdowns() {
   if (adminSelect) adminSelect.innerHTML = optionsHtml;
 }
 
-// Fixed Loophole 1: Prevent verifier points duplication from victors table
+// Loophole 1 Fix: Skip duplicate points if player is level verifier
 function calculateAllPlayerStats() {
   const playerStats = {};
 
@@ -490,7 +515,7 @@ function calculateAllPlayerStats() {
         const isLevelVerifier = vNameClean && (pName.toLowerCase() === vNameClean.toLowerCase());
         const earnedPoints = calculatePointsForRecord(level.rank, pct, minReq);
 
-        // Only add points if player did not already get verifier bonus points for this level
+        // Only add base victor points if not already credited as the verifier
         if (!isLevelVerifier) {
           playerStats[pName].points += earnedPoints;
         }
@@ -596,6 +621,44 @@ async function renderProfile() {
     banBadge.style.display = targetBanProfile?.is_banned ? "inline-block" : "none";
   }
 
+  // 2FA Security Card Visibility in Profile
+  const mfaCard = document.getElementById("mfaSecurityCard");
+  const mfaStatusText = document.getElementById("mfaStatusText");
+  const openMfaBtn = document.getElementById("openMfaSetupBtn");
+  const disableMfaBtn = document.getElementById("disableMfaBtn");
+
+  if (isViewingSelf && mfaCard && currentUser) {
+    mfaCard.style.display = "block";
+    try {
+      const { data: factors } = await supabaseClient.auth.mfa.listFactors();
+      const verifiedTotp = factors?.totp?.find(f => f.status === 'verified');
+      if (verifiedTotp) {
+        mfaStatusText.innerHTML = `<span style="color: var(--success); font-weight:700;">✓ Active:</span> Account is protected with an Authenticator App.`;
+        if (openMfaBtn) openMfaBtn.style.display = "none";
+        if (disableMfaBtn) {
+          disableMfaBtn.style.display = "inline-block";
+          disableMfaBtn.onclick = async () => {
+            if (!confirm("Are you sure you want to remove Two-Factor Authentication?")) return;
+            const { error } = await supabaseClient.auth.mfa.unenroll({ factorId: verifiedTotp.id });
+            if (error) alert("Error disabling 2FA: " + error.message);
+            else {
+              alert("2FA has been disabled.");
+              renderProfile();
+            }
+          };
+        }
+      } else {
+        mfaStatusText.innerHTML = `<span style="color: var(--accent-gold); font-weight:700;">⚠️ Inactive:</span> Strongly recommended for moderators and the owner.`;
+        if (openMfaBtn) openMfaBtn.style.display = "inline-block";
+        if (disableMfaBtn) disableMfaBtn.style.display = "none";
+      }
+    } catch (_) {
+      mfaCard.style.display = "none";
+    }
+  } else if (mfaCard) {
+    mfaCard.style.display = "none";
+  }
+
   const bioEditCard = document.getElementById("bioEditCard");
   if (isViewingSelf) {
     bioEditCard.style.display = "block";
@@ -685,7 +748,7 @@ async function renderProfile() {
   await renderProfileSubmissions(isViewingSelf);
 }
 
-// Fixed Loophole 4: Use RPC get_submission_queue_pos to query accurate global position
+// Loophole 4 Fix: Accurate queue position using RPC
 async function renderProfileSubmissions(isViewingSelf) {
   const container = document.getElementById("myPrivateSubmissionsCard");
   const list = document.getElementById("profileSubmissionsList");
@@ -882,7 +945,7 @@ function renderQueue() {
   }).join("");
 }
 
-// Fixed Loophole 2: Check for existing victor and update if new percentage is higher
+// Loophole 2 Fix: Update existing record if new percentage is higher
 async function approveSubmission(subId) {
   if (!isModerator) return;
   const sub = pendingSubmissionsCache.find(s => s.id == subId);
@@ -1249,7 +1312,7 @@ function setupForms() {
     });
   }
 
-  // 1. Submit Record to Queue Form (Fixed Loophole 6: Disable button during submission)
+  // 1. Submit Record to Queue Form (Loophole 6 Fix: Button state protection)
   const recordSubForm = document.getElementById("recordSubmissionForm");
   if (recordSubForm) {
     recordSubForm.addEventListener("submit", async (e) => {
@@ -1338,7 +1401,7 @@ function setupForms() {
     });
   }
 
-  // 2. Manual Accept Submission Form (Fixed Loophole 2 & 3: Shifting ranks + progress updates)
+  // 2. Manual Accept Submission Form (Loophole 2 & 3 Fixes)
   const manualForm = document.getElementById("manualAcceptForm");
   if (manualForm) {
     manualForm.addEventListener("submit", async (e) => {
@@ -1491,7 +1554,7 @@ function setupForms() {
     }
   });
 
-  // 4. Direct Victor Add (Fixed Loophole 2: Check & update higher progress)
+  // 4. Direct Victor Add (Loophole 2 Fix)
   document.getElementById("addVictorForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!isModerator) return;
@@ -1548,7 +1611,7 @@ function setupForms() {
     }
   });
 
-  // 5. Direct Level Add (Fixed Loophole 3: Shift levels on occupied rank)
+  // 5. Direct Level Add (Loophole 3 Fix)
   document.getElementById("addLevelForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!isModerator) return;
@@ -1664,7 +1727,7 @@ function setupModModals() {
     }
   });
 
-  // Ban Modal (Fixed Loophole 5: Frontend guard protecting owner and mods)
+  // Ban Modal (Loophole 5 Fix: Moderation Guard)
   const banModal = document.getElementById("banModal");
   document.getElementById("openBanModalBtn")?.addEventListener("click", () => {
     if (!targetBanProfile) return;
@@ -1813,9 +1876,7 @@ function setupSearch() {
   input?.addEventListener("input", () => renderList());
 }
 
-// ==========================================
-// AUTH SETUP & SUBMISSION HANDLER
-// ==========================================
+// Auth & Multi-Factor Authentication (MFA / TOTP)
 function setupAuth() {
   const modal = document.getElementById("authModal");
   const closeBtn = document.getElementById("closeAuthModal");
@@ -1844,10 +1905,10 @@ function setupAuth() {
     errorEl.textContent = "";
   };
 
+  // Sign In Submission
   loginForm.addEventListener("submit", async (e) => {
     e.preventDefault();
 
-    // 1. Check if user is currently in a cooldown period
     if (checkAndApplyLoginLockout()) return;
 
     const loginSubmitBtn = loginForm.querySelector("button[type='submit']");
@@ -1866,7 +1927,7 @@ function setupAuth() {
       });
 
       if (error) {
-        // Check if Supabase's server rate limiter (429) was hit
+        // Handle Supabase 429 Rate Limits
         const isRateLimited = error.status === 429 
           || error.statusCode === 429
           || error.code === 'over_request_rate_limit'
@@ -1875,20 +1936,20 @@ function setupAuth() {
           || String(error.message).toLowerCase().includes("too many requests");
 
         if (isRateLimited) {
-          const lockoutDuration = 60; // 60 seconds
+          const lockoutDuration = 60;
           localStorage.setItem("anl_login_lockout_until", (Date.now() + lockoutDuration * 1000).toString());
-          startLoginLockout(lockoutDuration, "⛔ Server rate limit reached. Please wait");
+          applyLoginLockout(lockoutDuration, "⛔ Server rate limit reached. Please wait");
           return;
         }
 
-        // Standard 400 (Bad Request / Incorrect password)
+        // Standard 400 Credential Error
         let failCount = parseInt(localStorage.getItem("anl_login_fail_count") || "0", 10) + 1;
 
         if (failCount >= 5) {
           const lockoutDuration = 60;
           localStorage.setItem("anl_login_lockout_until", (Date.now() + lockoutDuration * 1000).toString());
           localStorage.removeItem("anl_login_fail_count");
-          startLoginLockout(lockoutDuration);
+          applyLoginLockout(lockoutDuration);
         } else {
           localStorage.setItem("anl_login_fail_count", failCount.toString());
           const remaining = 5 - failCount;
@@ -1899,14 +1960,17 @@ function setupAuth() {
         return;
       }
 
-      // Successful login
-      localStorage.removeItem("anl_login_fail_count");
-      localStorage.removeItem("anl_login_lockout_until");
-      if (loginLockoutInterval) {
-        clearInterval(loginLockoutInterval);
-        loginLockoutInterval = null;
+      // Check if MFA is required on this account (AAL2)
+      const { data: aalData } = await supabaseClient.auth.mfa.getAuthenticatorAssuranceLevel();
+      if (aalData && aalData.nextLevel === 'aal2' && aalData.currentLevel !== 'aal2') {
+        modal.classList.remove("active");
+        await promptMfaChallenge(identifier);
+        return;
       }
 
+      // Successful login without MFA
+      localStorage.removeItem("anl_login_fail_count");
+      localStorage.removeItem("anl_login_lockout_until");
       modal.classList.remove("active");
       await checkAuthSession();
       await refreshQueueState();
@@ -1925,6 +1989,7 @@ function setupAuth() {
     }
   });
 
+  // Sign Up Submission
   signupForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const signupBtn = signupForm.querySelector("button[type='submit']");
@@ -1965,5 +2030,154 @@ function setupAuth() {
     } finally {
       signupBtn.disabled = false;
     }
+  });
+
+  // MFA 1: Prompt Challenge Modal
+  async function promptMfaChallenge(usernameOrEmail) {
+    currentPendingMfaUsername = usernameOrEmail;
+    mfaFailedAttempts = 0;
+
+    const { data: factors, error: factorsErr } = await supabaseClient.auth.mfa.listFactors();
+    const totpFactor = factors?.totp?.find(f => f.status === 'verified');
+
+    if (factorsErr || !totpFactor) {
+      alert("MFA factor error. Please sign in again.");
+      await supabaseClient.auth.signOut();
+      return;
+    }
+
+    currentMfaFactorId = totpFactor.id;
+    const challengeInput = document.getElementById("mfaChallengeInput");
+    const challengeError = document.getElementById("mfaChallengeError");
+    if (challengeInput) challengeInput.value = "";
+    if (challengeError) challengeError.textContent = "";
+
+    const challengeModal = document.getElementById("mfaChallengeModal");
+    if (challengeModal) {
+      challengeModal.classList.add("active");
+      if (challengeInput) challengeInput.focus();
+    }
+  }
+
+  // MFA 2: Verify Challenge Form Submission
+  document.getElementById("mfaChallengeForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const code = document.getElementById("mfaChallengeInput").value.trim();
+    const errorEl = document.getElementById("mfaChallengeError");
+    const verifyBtn = document.getElementById("mfaVerifyBtn");
+
+    verifyBtn.disabled = true;
+    errorEl.textContent = "Authenticating...";
+
+    const { error } = await supabaseClient.auth.mfa.challengeAndVerify({
+      factorId: currentMfaFactorId,
+      code: code
+    });
+
+    verifyBtn.disabled = false;
+
+    if (error) {
+      mfaFailedAttempts++;
+      const isOwner = currentPendingMfaUsername && currentPendingMfaUsername.toLowerCase().includes("ascent");
+
+      // EMERGENCY KILL-SWITCH: Triggered on 3 failed attempts
+      if (mfaFailedAttempts >= 3) {
+        if (isOwner) {
+          await supabaseClient.rpc('trigger_emergency_lockdown', {
+            target_username: 'Ascent',
+            reason: '3 consecutive failed 2FA verification attempts.'
+          });
+        }
+        await supabaseClient.auth.signOut();
+        document.getElementById("mfaChallengeModal")?.classList.remove("active");
+        alert("🚨 ACCESS DENIED: 3 failed 2FA attempts. Session terminated and emergency lockdown engaged.");
+        location.reload();
+        return;
+      }
+
+      errorEl.textContent = `Invalid 2FA code (${3 - mfaFailedAttempts} attempts remaining).`;
+      return;
+    }
+
+    // Success: upgraded to AAL2
+    document.getElementById("mfaChallengeModal")?.classList.remove("active");
+    localStorage.removeItem("anl_login_fail_count");
+    localStorage.removeItem("anl_login_lockout_until");
+    await checkAuthSession();
+    await refreshQueueState();
+    renderList();
+  });
+
+  // MFA 3: Cancel Challenge Modal
+  document.getElementById("mfaAbortBtn")?.addEventListener("click", async () => {
+    await supabaseClient.auth.signOut();
+    document.getElementById("mfaChallengeModal")?.classList.remove("active");
+    location.reload();
+  });
+
+  // MFA 4: Setup 2FA Button in Profile
+  document.getElementById("openMfaSetupBtn")?.addEventListener("click", async () => {
+    const enrollModal = document.getElementById("mfaEnrollModal");
+    const qrContainer = document.getElementById("mfaQrContainer");
+    const secretText = document.getElementById("mfaSecretText");
+    const errorEl = document.getElementById("mfaEnrollError");
+
+    if (errorEl) errorEl.textContent = "";
+    if (qrContainer) qrContainer.innerHTML = `<div class="loading">Generating QR code...</div>`;
+    if (enrollModal) enrollModal.classList.add("active");
+
+    const { data, error } = await supabaseClient.auth.mfa.enroll({
+      factorType: 'totp',
+      friendlyName: currentUser?.email || 'Ascent Nation List'
+    });
+
+    if (error) {
+      if (errorEl) errorEl.textContent = "Error enrolling MFA: " + error.message;
+      return;
+    }
+
+    currentEnrollingFactorId = data.id;
+    if (secretText) secretText.textContent = data.totp.secret;
+
+    if (qrContainer) {
+      if (data.totp.qr_code.startsWith('data:image')) {
+        qrContainer.innerHTML = `<img src="${data.totp.qr_code}" alt="QR Code">`;
+      } else if (data.totp.qr_code.startsWith('<svg')) {
+        qrContainer.innerHTML = data.totp.qr_code;
+      } else {
+        qrContainer.innerHTML = `<img src="${data.totp.qr_code}" alt="QR Code">`;
+      }
+    }
+  });
+
+  document.getElementById("closeMfaEnrollModal")?.addEventListener("click", () => {
+    document.getElementById("mfaEnrollModal")?.classList.remove("active");
+  });
+
+  // MFA 5: Verify and Activate 2FA Enrollment Form
+  document.getElementById("mfaEnrollForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const code = document.getElementById("mfaEnrollCodeInput").value.trim();
+    const errorEl = document.getElementById("mfaEnrollError");
+    const submitBtn = document.getElementById("mfaEnrollSubmitBtn");
+
+    submitBtn.disabled = true;
+    errorEl.textContent = "Verifying code...";
+
+    const { error } = await supabaseClient.auth.mfa.challengeAndVerify({
+      factorId: currentEnrollingFactorId,
+      code: code
+    });
+
+    submitBtn.disabled = false;
+
+    if (error) {
+      errorEl.textContent = "Invalid code. Please try again: " + error.message;
+      return;
+    }
+
+    alert("🎉 Two-Factor Authentication successfully activated!");
+    document.getElementById("mfaEnrollModal")?.classList.remove("active");
+    renderProfile();
   });
 }

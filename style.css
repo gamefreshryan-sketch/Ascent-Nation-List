@@ -1803,3 +1803,36 @@ input:focus, select:focus, textarea:focus {
     transform: rotate(90deg);
   }
 }
+
+/* ==========================================================================
+   MFA & TWO-FACTOR AUTHENTICATION STYLES
+   ========================================================================== */
+.mfa-digit-input {
+  font-family: 'Montserrat', monospace !important;
+  font-size: 1.8rem !important;
+  letter-spacing: 8px !important;
+  text-align: center !important;
+  padding: 12px 16px !important;
+  border-radius: var(--radius-md) !important;
+  border: 2px solid var(--border) !important;
+  color: var(--accent) !important;
+  background: var(--bg-card) !important;
+  width: 100% !important;
+  margin: 10px 0 16px 0 !important;
+}
+
+.mfa-digit-input:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 15px rgba(56, 189, 248, 0.3) !important;
+}
+
+#mfaQrContainer img, #mfaQrContainer svg {
+  width: 190px;
+  height: 190px;
+  display: block;
+  margin: 0 auto;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 8px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+}

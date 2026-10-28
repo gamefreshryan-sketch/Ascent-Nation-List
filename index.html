@@ -456,6 +456,20 @@
           </div>
         </div>
 
+        <!-- 2FA (MFA) SECURITY CARD -->
+        <div class="profile-settings-card" id="mfaSecurityCard" style="display: none; margin-top: 20px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div>
+              <h3 style="margin-bottom: 4px;">🔐 Two-Factor Authentication (2FA)</h3>
+              <p class="text-muted" style="font-size: 0.85rem;" id="mfaStatusText">Checking 2FA status...</p>
+            </div>
+            <div>
+              <button type="button" id="openMfaSetupBtn" class="submit-btn" style="width: auto; padding: 8px 16px;">Set Up 2FA</button>
+              <button type="button" id="disableMfaBtn" class="btn-danger" style="display: none; padding: 8px 16px;">Disable 2FA</button>
+            </div>
+          </div>
+        </div>
+
         <!-- BIO MANAGEMENT -->
         <div class="profile-settings-card" id="bioEditCard" style="display: none; margin-top: 20px;">
           <h3>Edit Personal Bio</h3>
@@ -755,6 +769,76 @@
       </form>
 
       <div id="authError" class="login-error"></div>
+    </div>
+  </div>
+
+  <!-- MODAL: MFA LOGIN CHALLENGE -->
+  <div id="mfaChallengeModal" class="modal">
+    <div class="modal-content" style="max-width: 400px; text-align: center;">
+      <h3 style="color: var(--accent); margin-bottom: 8px;">🔐 Two-Factor Authentication</h3>
+      <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 16px;">
+        Open your Authenticator app and enter the 6-digit verification code.
+      </p>
+
+      <form id="mfaChallengeForm">
+        <input 
+          type="text" 
+          id="mfaChallengeInput" 
+          maxlength="6" 
+          pattern="[0-9]{6}" 
+          placeholder="000000" 
+          class="mfa-digit-input"
+          required 
+          autocomplete="one-time-code"
+          inputmode="numeric"
+        >
+
+        <div id="mfaChallengeError" class="login-error" style="margin-bottom: 12px;"></div>
+
+        <button type="submit" id="mfaVerifyBtn" class="submit-btn" style="margin-bottom: 8px;">Verify & Sign In</button>
+        <button type="button" id="mfaAbortBtn" class="btn-secondary" style="width: 100%;">Cancel / Not Me</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: MFA ENROLLMENT (SETUP 2FA) -->
+  <div id="mfaEnrollModal" class="modal">
+    <div class="modal-content modal-large" style="max-width: 500px; text-align: center;">
+      <span class="close-btn" id="closeMfaEnrollModal">&times;</span>
+      <h3 style="color: var(--accent); margin-bottom: 6px;">📱 Setup Two-Factor Authentication</h3>
+      <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 16px;">
+        Scan this QR code with <strong>Google Authenticator</strong>, <strong>Authy</strong>, or your password manager.
+      </p>
+
+      <!-- QR Code Display Container -->
+      <div id="mfaQrContainer" style="margin: 14px auto;">
+        <div class="loading">Generating QR code...</div>
+      </div>
+
+      <!-- Text Secret Key Fallback -->
+      <div style="background: var(--bg-card); padding: 10px; border-radius: 6px; border: 1px dashed var(--border); margin-bottom: 16px;">
+        <span class="text-muted" style="font-size: 0.75rem; display: block;">Or enter key manually:</span>
+        <code id="mfaSecretText" style="color: var(--accent-gold); font-size: 0.95rem; font-weight: 700; user-select: all; letter-spacing: 1px;">--------</code>
+      </div>
+
+      <form id="mfaEnrollForm">
+        <label for="mfaEnrollCodeInput" style="text-align: left; display: block; font-size: 0.85rem;">Enter 6-digit code from app to confirm:</label>
+        <input 
+          type="text" 
+          id="mfaEnrollCodeInput" 
+          maxlength="6" 
+          pattern="[0-9]{6}" 
+          placeholder="123456" 
+          class="mfa-digit-input"
+          required 
+          autocomplete="one-time-code"
+          inputmode="numeric"
+        >
+
+        <div id="mfaEnrollError" class="login-error" style="margin-bottom: 12px;"></div>
+
+        <button type="submit" id="mfaEnrollSubmitBtn" class="submit-btn">Verify & Activate 2FA</button>
+      </form>
     </div>
   </div>
 
