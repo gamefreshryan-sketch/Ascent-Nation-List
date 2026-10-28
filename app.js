@@ -82,23 +82,41 @@ function calculatePointsForRecord(rank, percentage, minReq = 100) {
   return 0;
 }
 
-// Login Rate-Limiting Helpers
-function isLoginLocked() {
+// ==========================================
+// AUTH RATE-LIMITING HELPERS
+// ==========================================
+
+function checkAndApplyLoginLockout() {
   const lockoutUntil = parseInt(localStorage.getItem("anl_login_lockout_until") || "0", 10);
-  return lockoutUntil > Date.now();
+  const now = Date.now();
+  if (lockoutUntil > now) {
+    const remainingSeconds = Math.ceil((lockoutUntil - now) / 1000);
+    startLoginLockout(remainingSeconds);
+    return true;
+  }
+  return false;
 }
 
-function applyLoginLockout(remainingSeconds) {
-  const loginBtn = document.querySelector("#loginForm button[type='submit']");
+function startLoginLockout(seconds, customMessage = null) {
+  const loginSubmitBtn = document.querySelector("#loginForm button[type='submit']");
   const errorEl = document.getElementById("authError");
-  if (!loginBtn || !errorEl) return;
-
-  loginBtn.disabled = true;
+  if (!loginSubmitBtn || !errorEl) return;
 
   if (loginLockoutInterval) clearInterval(loginLockoutInterval);
 
-  let secondsLeft = remainingSeconds;
-  errorEl.textContent = `⛔ Too many failed attempts. Please wait ${secondsLeft}s before trying again.`;
+  let secondsLeft = seconds;
+  loginSubmitBtn.disabled = true;
+
+  const updateDisplay = () => {
+    loginSubmitBtn.textContent = `Locked (${secondsLeft}s)`;
+    if (customMessage) {
+      errorEl.textContent = `${customMessage} (${secondsLeft}s remaining)`;
+    } else {
+      errorEl.textContent = `⛔ Too many failed attempts. Please wait ${secondsLeft}s before trying again.`;
+    }
+  };
+
+  updateDisplay();
 
   loginLockoutInterval = setInterval(() => {
     secondsLeft--;
@@ -106,23 +124,14 @@ function applyLoginLockout(remainingSeconds) {
       clearInterval(loginLockoutInterval);
       loginLockoutInterval = null;
       localStorage.removeItem("anl_login_lockout_until");
-      loginBtn.disabled = false;
+      localStorage.removeItem("anl_login_fail_count");
+      loginSubmitBtn.disabled = false;
+      loginSubmitBtn.textContent = "Sign In";
       errorEl.textContent = "";
     } else {
-      errorEl.textContent = `⛔ Too many failed attempts. Please wait ${secondsLeft}s before trying again.`;
+      updateDisplay();
     }
   }, 1000);
-}
-
-function checkAndApplyLoginLockout() {
-  const lockoutUntil = parseInt(localStorage.getItem("anl_login_lockout_until") || "0", 10);
-  const now = Date.now();
-  if (lockoutUntil > now) {
-    const remainingSeconds = Math.ceil((lockoutUntil - now) / 1000);
-    applyLoginLockout(remainingSeconds);
-    return true;
-  }
-  return false;
 }
 
 // App Startup
@@ -1804,6 +1813,9 @@ function setupSearch() {
   input?.addEventListener("input", () => renderList());
 }
 
+// ==========================================
+// AUTH SETUP & SUBMISSION HANDLER
+// ==========================================
 function setupAuth() {
   const modal = document.getElementById("authModal");
   const closeBtn = document.getElementById("closeAuthModal");
@@ -1835,6 +1847,7 @@ function setupAuth() {
   loginForm.addEventListener("submit", async (e) => {
     e.preventDefault();
 
+    // 1. Check if user is currently in a cooldown period
     if (checkAndApplyLoginLockout()) return;
 
     const loginSubmitBtn = loginForm.querySelector("button[type='submit']");
@@ -1843,43 +1856,50 @@ function setupAuth() {
     let emailToUse = identifier.includes("@") ? identifier.toLowerCase() : usernameToEmail(identifier);
 
     loginSubmitBtn.disabled = true;
-    errorEl.textContent = "Signing in...";
+    loginSubmitBtn.textContent = "Signing in...";
+    errorEl.textContent = "";
 
     try {
-      const { error } = await supabaseClient.auth.signInWithPassword({
-        email: emailToUse, password: password
+      const { data, error } = await supabaseClient.auth.signInWithPassword({
+        email: emailToUse,
+        password: password
       });
 
       if (error) {
-        // Check if Supabase triggered a 429 rate limit error
+        // Check if Supabase's server rate limiter (429) was hit
         const isRateLimited = error.status === 429 
+          || error.statusCode === 429
+          || error.code === 'over_request_rate_limit'
+          || error.code === 'too_many_requests'
           || String(error.message).toLowerCase().includes("rate limit")
           || String(error.message).toLowerCase().includes("too many requests");
 
         if (isRateLimited) {
-          const lockoutUntil = Date.now() + 60 * 1000;
-          localStorage.setItem("anl_login_lockout_until", lockoutUntil.toString());
-          localStorage.removeItem("anl_login_fail_count");
-          applyLoginLockout(60);
+          const lockoutDuration = 60; // 60 seconds
+          localStorage.setItem("anl_login_lockout_until", (Date.now() + lockoutDuration * 1000).toString());
+          startLoginLockout(lockoutDuration, "⛔ Server rate limit reached. Please wait");
           return;
         }
 
-        const failCount = (parseInt(localStorage.getItem("anl_login_fail_count") || "0", 10)) + 1;
+        // Standard 400 (Bad Request / Incorrect password)
+        let failCount = parseInt(localStorage.getItem("anl_login_fail_count") || "0", 10) + 1;
+
         if (failCount >= 5) {
-          const lockoutUntil = Date.now() + 60 * 1000;
-          localStorage.setItem("anl_login_lockout_until", lockoutUntil.toString());
+          const lockoutDuration = 60;
+          localStorage.setItem("anl_login_lockout_until", (Date.now() + lockoutDuration * 1000).toString());
           localStorage.removeItem("anl_login_fail_count");
-          applyLoginLockout(60);
+          startLoginLockout(lockoutDuration);
         } else {
           localStorage.setItem("anl_login_fail_count", failCount.toString());
-          const attemptsLeft = 5 - failCount;
-          errorEl.textContent = `Invalid username/email or password. (${attemptsLeft} attempt${attemptsLeft === 1 ? '' : 's'} remaining before 60s cooldown)`;
+          const remaining = 5 - failCount;
+          errorEl.textContent = `Invalid username or password. (${remaining} attempt${remaining === 1 ? '' : 's'} remaining before 60s cooldown)`;
           loginSubmitBtn.disabled = false;
+          loginSubmitBtn.textContent = "Sign In";
         }
         return;
       }
 
-      // Successful login - clear tracking
+      // Successful login
       localStorage.removeItem("anl_login_fail_count");
       localStorage.removeItem("anl_login_lockout_until");
       if (loginLockoutInterval) {
@@ -1891,9 +1911,16 @@ function setupAuth() {
       await checkAuthSession();
       await refreshQueueState();
       renderList();
+    } catch (err) {
+      console.error("Login unexpected error:", err);
+      errorEl.textContent = "An error occurred while signing in. Please try again.";
+      loginSubmitBtn.disabled = false;
+      loginSubmitBtn.textContent = "Sign In";
     } finally {
-      if (!isLoginLocked()) {
+      const isLocked = parseInt(localStorage.getItem("anl_login_lockout_until") || "0", 10) > Date.now();
+      if (!isLocked && loginSubmitBtn.disabled) {
         loginSubmitBtn.disabled = false;
+        loginSubmitBtn.textContent = "Sign In";
       }
     }
   });
