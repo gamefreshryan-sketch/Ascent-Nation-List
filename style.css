@@ -1826,13 +1826,22 @@ input:focus, select:focus, textarea:focus {
   box-shadow: 0 0 15px rgba(56, 189, 248, 0.3) !important;
 }
 
-#mfaQrContainer img, #mfaQrContainer svg {
-  width: 190px;
-  height: 190px;
-  display: block;
-  margin: 0 auto;
-  border-radius: 8px;
-  background: #ffffff;
-  padding: 8px;
-  box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+.mfa-qr-card {
+  background: #ffffff !important;
+  padding: 16px !important;
+  border-radius: 10px !important;
+  width: 210px !important;
+  height: 210px !important;
+  margin: 0 auto !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5) !important;
+}
+
+.mfa-qr-card svg {
+  width: 100% !important;
+  height: 100% !important;
+  display: block !important;
+  border-radius: 0 !important; /* Keeps finder squares intact so phones can scan */
 }

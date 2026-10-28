@@ -2152,19 +2152,40 @@ function setupAuth() {
       currentEnrollingFactorId = data.id;
       if (secretText) secretText.textContent = data.totp.secret;
 
-      // 3. Render clean SVG (no quote collisions)
+      // 3. Render clean, scannable QR code
       if (qrContainer) {
         const rawQr = data.totp.qr_code;
+        let svgString = '';
+
         if (rawQr && rawQr.includes('<svg')) {
-          qrContainer.innerHTML = rawQr.slice(rawQr.indexOf('<svg'));
-        } else if (rawQr) {
-          const img = document.createElement('img');
-          img.src = rawQr;
-          img.alt = 'QR Code';
-          qrContainer.innerHTML = '';
-          qrContainer.appendChild(img);
+          svgString = rawQr.slice(rawQr.indexOf('<svg'));
+        }
+
+        if (svgString) {
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(svgString, 'image/svg+xml');
+          const svgEl = doc.querySelector('svg');
+
+          if (svgEl) {
+            // Ensure viewBox exists so lines render with sub-pixel sharpness
+            const width = svgEl.getAttribute('width') || '256';
+            const height = svgEl.getAttribute('height') || '256';
+            if (!svgEl.getAttribute('viewBox')) {
+              svgEl.setAttribute('viewBox', `0 0 ${width} ${height}`);
+            }
+            svgEl.removeAttribute('width');
+            svgEl.removeAttribute('height');
+
+            // Wrap inside a true white card with a clean quiet zone
+            qrContainer.innerHTML = '';
+            const whiteCard = document.createElement('div');
+            whiteCard.className = 'mfa-qr-card';
+            whiteCard.appendChild(svgEl);
+            qrContainer.appendChild(whiteCard);
+          }
         }
       }
+
     } catch (err) {
       if (errorEl) errorEl.textContent = "Setup error: " + err.message;
     }
