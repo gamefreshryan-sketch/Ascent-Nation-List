@@ -1,3 +1,4 @@
+
 let currentLevels = [];
 let currentTab = "main";
 let selectedLevelId = null;
@@ -9,6 +10,9 @@ let currentProfileSort = "rank";
 let targetBanProfile = null;
 let pendingSubmissionsCache = [];
 let currentRejectSubmissionId = null;
+
+// Login rate-limiting state
+let loginLockoutInterval = null;
 
 // Helpers
 function isValidUsername(username) {
@@ -76,6 +80,49 @@ function calculatePointsForRecord(rank, percentage, minReq = 100) {
     return parseFloat((basePts * multiplier).toFixed(2));
   }
   return 0;
+}
+
+// Login Rate-Limiting Helpers
+function isLoginLocked() {
+  const lockoutUntil = parseInt(localStorage.getItem("anl_login_lockout_until") || "0", 10);
+  return lockoutUntil > Date.now();
+}
+
+function applyLoginLockout(remainingSeconds) {
+  const loginBtn = document.querySelector("#loginForm button[type='submit']");
+  const errorEl = document.getElementById("authError");
+  if (!loginBtn || !errorEl) return;
+
+  loginBtn.disabled = true;
+
+  if (loginLockoutInterval) clearInterval(loginLockoutInterval);
+
+  let secondsLeft = remainingSeconds;
+  errorEl.textContent = `⛔ Too many failed attempts. Please wait ${secondsLeft}s before trying again.`;
+
+  loginLockoutInterval = setInterval(() => {
+    secondsLeft--;
+    if (secondsLeft <= 0) {
+      clearInterval(loginLockoutInterval);
+      loginLockoutInterval = null;
+      localStorage.removeItem("anl_login_lockout_until");
+      loginBtn.disabled = false;
+      errorEl.textContent = "";
+    } else {
+      errorEl.textContent = `⛔ Too many failed attempts. Please wait ${secondsLeft}s before trying again.`;
+    }
+  }, 1000);
+}
+
+function checkAndApplyLoginLockout() {
+  const lockoutUntil = parseInt(localStorage.getItem("anl_login_lockout_until") || "0", 10);
+  const now = Date.now();
+  if (lockoutUntil > now) {
+    const remainingSeconds = Math.ceil((lockoutUntil - now) / 1000);
+    applyLoginLockout(remainingSeconds);
+    return true;
+  }
+  return false;
 }
 
 // App Startup
@@ -255,6 +302,7 @@ function setLoggedOutState() {
   authBtn.textContent = "Sign In / Register";
   authBtn.onclick = () => {
     document.getElementById("authModal").classList.add("active");
+    checkAndApplyLoginLockout();
   };
 
   if (currentTab === "profile" && !activeProfilePlayer) {
@@ -1773,6 +1821,7 @@ function setupAuth() {
     loginForm.style.display = "block";
     signupForm.style.display = "none";
     errorEl.textContent = "";
+    checkAndApplyLoginLockout();
   };
 
   tabSignupBtn.onclick = () => {
@@ -1785,28 +1834,73 @@ function setupAuth() {
 
   loginForm.addEventListener("submit", async (e) => {
     e.preventDefault();
+
+    if (checkAndApplyLoginLockout()) return;
+
+    const loginSubmitBtn = loginForm.querySelector("button[type='submit']");
     const identifier = document.getElementById("loginUsername").value.trim();
     const password = document.getElementById("loginPassword").value;
     let emailToUse = identifier.includes("@") ? identifier.toLowerCase() : usernameToEmail(identifier);
 
+    loginSubmitBtn.disabled = true;
     errorEl.textContent = "Signing in...";
-    const { error } = await supabaseClient.auth.signInWithPassword({
-      email: emailToUse, password: password
-    });
 
-    if (error) {
-      errorEl.textContent = "Invalid username/email or password.";
-      return;
+    try {
+      const { error } = await supabaseClient.auth.signInWithPassword({
+        email: emailToUse, password: password
+      });
+
+      if (error) {
+        // Check if Supabase triggered a 429 rate limit error
+        const isRateLimited = error.status === 429 
+          || String(error.message).toLowerCase().includes("rate limit")
+          || String(error.message).toLowerCase().includes("too many requests");
+
+        if (isRateLimited) {
+          const lockoutUntil = Date.now() + 60 * 1000;
+          localStorage.setItem("anl_login_lockout_until", lockoutUntil.toString());
+          localStorage.removeItem("anl_login_fail_count");
+          applyLoginLockout(60);
+          return;
+        }
+
+        const failCount = (parseInt(localStorage.getItem("anl_login_fail_count") || "0", 10)) + 1;
+        if (failCount >= 5) {
+          const lockoutUntil = Date.now() + 60 * 1000;
+          localStorage.setItem("anl_login_lockout_until", lockoutUntil.toString());
+          localStorage.removeItem("anl_login_fail_count");
+          applyLoginLockout(60);
+        } else {
+          localStorage.setItem("anl_login_fail_count", failCount.toString());
+          const attemptsLeft = 5 - failCount;
+          errorEl.textContent = `Invalid username/email or password. (${attemptsLeft} attempt${attemptsLeft === 1 ? '' : 's'} remaining before 60s cooldown)`;
+          loginSubmitBtn.disabled = false;
+        }
+        return;
+      }
+
+      // Successful login - clear tracking
+      localStorage.removeItem("anl_login_fail_count");
+      localStorage.removeItem("anl_login_lockout_until");
+      if (loginLockoutInterval) {
+        clearInterval(loginLockoutInterval);
+        loginLockoutInterval = null;
+      }
+
+      modal.classList.remove("active");
+      await checkAuthSession();
+      await refreshQueueState();
+      renderList();
+    } finally {
+      if (!isLoginLocked()) {
+        loginSubmitBtn.disabled = false;
+      }
     }
-
-    modal.classList.remove("active");
-    await checkAuthSession();
-    await refreshQueueState();
-    renderList();
   });
 
   signupForm.addEventListener("submit", async (e) => {
     e.preventDefault();
+    const signupBtn = signupForm.querySelector("button[type='submit']");
     const username = document.getElementById("signupUsername").value.trim();
     const password = document.getElementById("signupPassword").value;
 
@@ -1816,28 +1910,33 @@ function setupAuth() {
     }
 
     const pseudoEmail = usernameToEmail(username);
+    signupBtn.disabled = true;
     errorEl.textContent = "Creating account...";
 
-    const { data, error } = await supabaseClient.auth.signUp({
-      email: pseudoEmail,
-      password: password,
-      options: { data: { player_name: username } }
-    });
+    try {
+      const { data, error } = await supabaseClient.auth.signUp({
+        email: pseudoEmail,
+        password: password,
+        options: { data: { player_name: username } }
+      });
 
-    if (error) {
-      errorEl.textContent = error.message;
-      return;
-    }
+      if (error) {
+        errorEl.textContent = error.message;
+        return;
+      }
 
-    if (data.session) {
-      modal.classList.remove("active");
-      await checkAuthSession();
-      await refreshQueueState();
-      renderList();
-      alert(`Welcome to ANL, ${username}!`);
-    } else {
-      errorEl.textContent = "Registered! You can now log in.";
-      tabLoginBtn.click();
+      if (data.session) {
+        modal.classList.remove("active");
+        await checkAuthSession();
+        await refreshQueueState();
+        renderList();
+        alert(`Welcome to ANL, ${username}!`);
+      } else {
+        errorEl.textContent = "Registered! You can now log in.";
+        tabLoginBtn.click();
+      }
+    } finally {
+      signupBtn.disabled = false;
     }
   });
 }
