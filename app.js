@@ -98,7 +98,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 // Click delegation
 function setupDelegatedEvents() {
   document.addEventListener("click", async (e) => {
-    // 1. Player link
+    // 1. Player link (works for any visitor logged in or logged out)
     const playerLink = e.target.closest(".player-link");
     if (playerLink && playerLink.dataset.player) {
       e.preventDefault();
@@ -162,8 +162,11 @@ function openPlayerProfile(playerName) {
   document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
   document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
 
+  // Only highlight the profile tab button if the user is currently logged in
   const profileBtn = document.getElementById("profileTabBtn");
-  if (profileBtn) profileBtn.classList.add("active");
+  if (profileBtn && currentUser) {
+    profileBtn.classList.add("active");
+  }
 
   const profileView = document.getElementById("profileView");
   if (profileView) profileView.classList.add("active");
@@ -218,6 +221,12 @@ function setLoggedInState() {
     el.style.display = isModerator ? "inline-block" : "none";
   });
 
+  // Show profile navigation button in the navbar when authenticated
+  const profileTabBtn = document.getElementById("profileTabBtn");
+  if (profileTabBtn) {
+    profileTabBtn.style.display = "inline-flex";
+  }
+
   const authBtn = document.getElementById("authBtn");
   authBtn.textContent = `Logout (${playerName})`;
   authBtn.onclick = async () => {
@@ -238,13 +247,29 @@ function setLoggedOutState() {
     el.style.display = "none";
   });
 
+  // Hide the profile navigation button from the menu bar when logged out
+  const profileTabBtn = document.getElementById("profileTabBtn");
+  if (profileTabBtn) {
+    profileTabBtn.style.display = "none";
+    profileTabBtn.classList.remove("active");
+  }
+
   const authBtn = document.getElementById("authBtn");
   authBtn.textContent = "Sign In / Register";
   authBtn.onclick = () => {
     document.getElementById("authModal").classList.add("active");
   };
 
-  renderProfile();
+  // If currently looking at own profile, return to main list
+  if (currentTab === "profile" && !activeProfilePlayer) {
+    currentTab = "main";
+    document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
+    document.getElementById("listView")?.classList.add("active");
+    document.querySelector('.nav-btn[data-tab="main"]')?.classList.add("active");
+  } else {
+    renderProfile();
+  }
+
   checkSubmissionRestrictions();
 }
 
@@ -468,8 +493,8 @@ async function renderProfile() {
                     || currentUser?.email?.split('@')[0] 
                     || "";
 
-  const isViewingSelf = !activeProfilePlayer || (
-    loggedInName && loggedInName.toLowerCase() === activeProfilePlayer.toLowerCase()
+  const isViewingSelf = !!currentUser && (
+    !activeProfilePlayer || (loggedInName && loggedInName.toLowerCase() === activeProfilePlayer.toLowerCase())
   );
 
   if (!targetPlayerName) {
@@ -512,7 +537,7 @@ async function renderProfile() {
   }
 
   const bioEditCard = document.getElementById("bioEditCard");
-  if (currentUser && isViewingSelf) {
+  if (isViewingSelf) {
     bioEditCard.style.display = "block";
     document.getElementById("updateBioInput").value = currentProfile?.bio || "";
   } else {
@@ -530,7 +555,9 @@ async function renderProfile() {
 
   document.getElementById("profilePlayerName").textContent = targetPlayerName;
   document.getElementById("profileAvatar").textContent = (targetPlayerName.charAt(0) || "?").toUpperCase();
-  document.getElementById("profileBadge").textContent = isViewingSelf && currentUser ? (isModerator ? "Moderator (Me)" : "My Account") : (targetBanProfile?.is_mod ? "Moderator" : "Player");
+  document.getElementById("profileBadge").textContent = isViewingSelf 
+    ? (isModerator ? "Moderator (Me)" : "My Account") 
+    : (targetBanProfile?.is_mod ? "Moderator" : "Player");
 
   const userStats = allStats.find(p => p.name.toLowerCase() === targetPlayerName.toLowerCase());
 
@@ -600,6 +627,7 @@ async function renderProfile() {
 function renderProfileSubmissions(isViewingSelf) {
   const container = document.getElementById("myPrivateSubmissionsCard");
   const list = document.getElementById("profileSubmissionsList");
+  const countBadge = document.getElementById("mySubmissionsCountBadge");
 
   if (!currentUser || !isViewingSelf) {
     container.style.display = "none";
@@ -608,6 +636,16 @@ function renderProfileSubmissions(isViewingSelf) {
 
   container.style.display = "block";
   const mySubmissions = pendingSubmissionsCache.filter(s => s.user_id === currentUser.id);
+
+  // Update submissions badge count on the dropdown header
+  if (countBadge) {
+    if (mySubmissions.length > 0) {
+      countBadge.textContent = mySubmissions.length;
+      countBadge.style.display = "inline-block";
+    } else {
+      countBadge.style.display = "none";
+    }
+  }
 
   if (mySubmissions.length === 0) {
     list.innerHTML = `<p class="text-muted">You have no active submissions.</p>`;
@@ -821,7 +859,7 @@ async function approveSubmission(subId) {
   await refreshQueueState();
 }
 
-// 2. Open Manual Accept Modal (Pre-populate with submission details)
+// 2. Open Manual Accept Modal
 function openManualAcceptModal(subId) {
   const sub = pendingSubmissionsCache.find(s => s.id == subId);
   if (!sub) return;
@@ -1094,7 +1132,6 @@ function renderLevelDetails(level) {
 }
 
 function setupForms() {
-  // Toggle between Completion and Verification fields
   const subTypeSelect = document.getElementById("subType");
   const compGroup = document.getElementById("fieldGroupCompletion");
   const veriGroup = document.getElementById("fieldGroupVerification");
@@ -1189,7 +1226,7 @@ function setupForms() {
     });
   }
 
-  // 2. Manual Accept Submission Form (Moderator fills in details)
+  // 2. Manual Accept Submission Form
   const manualForm = document.getElementById("manualAcceptForm");
   if (manualForm) {
     manualForm.addEventListener("submit", async (e) => {
@@ -1214,7 +1251,6 @@ function setupForms() {
 
       const sub = pendingSubmissionsCache.find(s => s.id == subId);
 
-      // Check if rank is already occupied
       const rankTaken = currentLevels.some(l => l.rank === rank && l.id !== sub?.level_id);
       if (rankTaken) {
         if (!confirm(`Warning: Rank #${rank} is currently occupied. Do you want to proceed inserting anyway?`)) {
@@ -1224,7 +1260,6 @@ function setupForms() {
 
       let targetLevelId = sub?.level_id;
 
-      // If it's a new verification or creating level anew
       if (!targetLevelId || sub?.type === 'verification') {
         const { data: newLevel, error: lvlErr } = await supabaseClient
           .from('levels')
@@ -1247,7 +1282,6 @@ function setupForms() {
         }
         targetLevelId = newLevel.id;
       } else {
-        // Update existing level
         await supabaseClient
           .from('levels')
           .update({
@@ -1263,7 +1297,6 @@ function setupForms() {
           .eq('id', targetLevelId);
       }
 
-      // Insert record into victors
       await supabaseClient.from('victors').insert([{
         level_id: targetLevelId,
         player_name: verifier,
@@ -1273,7 +1306,6 @@ function setupForms() {
         device: device
       }]);
 
-      // Mark submission accepted
       if (sub) {
         const modName = currentProfile?.username || "Moderator";
         await supabaseClient
@@ -1387,7 +1419,6 @@ async function deleteVictor(victorId) {
 }
 
 function setupModModals() {
-  // Reject Modal
   const rejectModal = document.getElementById("rejectModal");
   document.getElementById("closeRejectModal").onclick = () => rejectModal.classList.remove("active");
   document.getElementById("rejectPreset").onchange = (e) => {
@@ -1399,12 +1430,10 @@ function setupModModals() {
     if (currentRejectSubmissionId) await denySubmission(currentRejectSubmissionId, reason);
   };
 
-  // Close Manual Accept Modal
   document.getElementById("closeManualAcceptModal").onclick = () => {
     document.getElementById("manualAcceptModal").classList.remove("active");
   };
 
-  // Punish Timeout Modal
   const punishModal = document.getElementById("punishModal");
   document.getElementById("openPunishModalBtn")?.addEventListener("click", () => {
     if (!targetBanProfile) return;
@@ -1437,7 +1466,6 @@ function setupModModals() {
     }
   });
 
-  // Ban Modal
   const banModal = document.getElementById("banModal");
   document.getElementById("openBanModalBtn")?.addEventListener("click", () => {
     if (!targetBanProfile) return;
@@ -1468,7 +1496,6 @@ function setupModModals() {
     renderProfile();
   });
 
-  // Unban
   document.getElementById("unbanPlayerBtn")?.addEventListener("click", async () => {
     if (!targetBanProfile || !isModerator) return;
     if (!confirm(`Remove ban sanctions from ${targetBanProfile.username}?`)) return;
@@ -1483,7 +1510,6 @@ function setupModModals() {
 }
 
 function setupNavigation() {
-  // Mobile Hamburger Toggle
   const navToggle = document.getElementById("navToggle");
   const navMenu = document.getElementById("navMenuWrapper");
   if (navToggle) {
@@ -1492,7 +1518,6 @@ function setupNavigation() {
     });
   }
 
-  // Moderator Dropdown Trigger
   const modDropdownBtn = document.getElementById("modDropdownBtn");
   const modContainer = document.getElementById("modMenuDropdown");
   if (modDropdownBtn) {
@@ -1515,7 +1540,6 @@ function setupNavigation() {
       document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
       if (btn.classList.contains("nav-btn")) btn.classList.add("active");
 
-      // Close mobile menu
       if (navMenu) navMenu.classList.remove("active");
       if (modContainer) modContainer.classList.remove("open");
 
@@ -1532,6 +1556,7 @@ function setupNavigation() {
         document.getElementById("submitView").classList.add("active");
         checkSubmissionRestrictions();
       } else if (tab === "profile") {
+        activeProfilePlayer = null; // Always open current user's profile when clicking the navbar tab
         document.getElementById("profileView").classList.add("active");
         renderProfile();
       } else if (tab === "rules") {
@@ -1547,6 +1572,26 @@ function setupNavigation() {
       }
     });
   });
+
+  // Collapsible Dropdown Toggle for Submissions Tracker
+  const subDropdownToggle = document.getElementById("submissionsDropdownToggle");
+  if (subDropdownToggle) {
+    subDropdownToggle.addEventListener("click", () => {
+      const content = document.getElementById("submissionsDropdownContent");
+      const chevron = document.getElementById("submissionsChevron");
+      const isOpen = content.style.display !== "none";
+
+      if (isOpen) {
+        content.style.display = "none";
+        if (chevron) chevron.textContent = "▶";
+        subDropdownToggle.setAttribute("aria-expanded", "false");
+      } else {
+        content.style.display = "block";
+        if (chevron) chevron.textContent = "▼";
+        subDropdownToggle.setAttribute("aria-expanded", "true");
+      }
+    });
+  }
 
   document.getElementById("queueTypeFilter")?.addEventListener("change", renderQueue);
   document.getElementById("queueOrderFilter")?.addEventListener("change", renderQueue);

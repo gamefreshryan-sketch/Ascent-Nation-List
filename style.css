@@ -1,7 +1,3 @@
-/* ==========================================================================
-   ASCENT NATION LIST (ANL) - MAIN STYLESHEET
-   ========================================================================== */
-
 :root {
   --bg-primary: #0d0f15;
   --bg-secondary: #161922;
@@ -384,7 +380,6 @@ input:focus, select:focus, textarea:focus {
   transition: border-color 0.2s, background-color 0.2s, transform 0.15s ease;
 }
 
-/* Background YouTube Thumbnail */
 .item-bg-thumb {
   position: absolute;
   top: 0;
@@ -398,7 +393,6 @@ input:focus, select:focus, textarea:focus {
   z-index: 1;
 }
 
-/* Dynamic Left-to-Right Darkening Gradient Overlay */
 .item-overlay {
   position: absolute;
   inset: 0;
@@ -431,7 +425,6 @@ input:focus, select:focus, textarea:focus {
   );
 }
 
-/* Active Selected Card */
 .level-item.active {
   border-left: 4px solid var(--accent);
   background-color: var(--bg-card);
@@ -452,7 +445,6 @@ input:focus, select:focus, textarea:focus {
   );
 }
 
-/* Foreground Text Content */
 .item-content {
   position: relative;
   z-index: 3;
@@ -1043,6 +1035,58 @@ input:focus, select:focus, textarea:focus {
 
 .profile-level-row a:hover {
   text-decoration: underline;
+}
+
+/* ==========================================================================
+   SUBMISSIONS COLLAPSIBLE DROPDOWN BAR
+   ========================================================================== */
+.submissions-dropdown-card {
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.submissions-dropdown-toggle {
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: 14px 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  color: var(--text-main);
+  text-align: left;
+  font-family: inherit;
+  transition: background 0.15s ease;
+}
+
+.submissions-dropdown-toggle:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.toggle-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.toggle-header-left h3 {
+  margin-bottom: 0 !important;
+  font-size: 1rem;
+}
+
+.dropdown-chevron {
+  font-size: 0.75rem;
+  color: var(--accent);
+  transition: transform 0.2s ease;
+  display: inline-block;
+  width: 12px;
+}
+
+.submissions-dropdown-content {
+  padding: 0 18px 18px 18px;
+  border-top: 1px solid var(--border);
+  animation: fadeIn 0.2s ease;
 }
 
 /* ==========================================================================

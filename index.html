@@ -31,7 +31,8 @@
         <button class="nav-btn" data-tab="leaderboard">Leaderboard</button>
         <button class="nav-btn" data-tab="submit">Submit</button>
         <button class="nav-btn" data-tab="rules">Rules</button>
-        <button class="nav-btn" id="profileTabBtn" data-tab="profile">👤 Profile</button>
+        <!-- Profile Tab Button (Hidden by default when logged out) -->
+        <button class="nav-btn" id="profileTabBtn" data-tab="profile" style="display: none;">👤 Profile</button>
 
         <!-- STREAMLINED MODERATOR DROPDOWN -->
         <div class="mod-dropdown-container mod-only" id="modMenuDropdown" style="display: none;">
@@ -250,17 +251,23 @@
           </div>
         </div>
 
-        <!-- PRIVATE SUBMISSIONS TRACKER -->
-        <div class="profile-records-card" id="myPrivateSubmissionsCard" style="display: none; margin-bottom: 20px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
-            <h3>My Submission Status & Queue Position</h3>
+        <!-- PRIVATE SUBMISSIONS TRACKER (COLLAPSIBLE DROPDOWN BAR) -->
+        <div class="profile-records-card submissions-dropdown-card" id="myPrivateSubmissionsCard" style="display: none; margin-bottom: 20px;">
+          <button type="button" class="submissions-dropdown-toggle" id="submissionsDropdownToggle" aria-expanded="false">
+            <div class="toggle-header-left">
+              <span class="dropdown-chevron" id="submissionsChevron">▶</span>
+              <h3>My Submissions & Queue Tracker</h3>
+              <span id="mySubmissionsCountBadge" class="queue-counter" style="display: none;">0</span>
+            </div>
             <span class="text-muted" style="font-size: 0.8rem;">🔒 Private to you</span>
-          </div>
-          <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 12px;">
-            Queue positions show pending submissions ahead of yours in processing order.
-          </p>
-          <div id="profileSubmissionsList" class="profile-level-list">
-            <p class="text-muted">You have no active submissions.</p>
+          </button>
+          <div class="submissions-dropdown-content" id="submissionsDropdownContent" style="display: none;">
+            <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 12px; margin-top: 10px;">
+              Queue positions show pending submissions ahead of yours in processing order.
+            </p>
+            <div id="profileSubmissionsList" class="profile-level-list">
+              <p class="text-muted">You have no active submissions.</p>
+            </div>
           </div>
         </div>
 
