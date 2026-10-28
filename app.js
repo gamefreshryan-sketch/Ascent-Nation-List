@@ -146,6 +146,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("discordLink").href = safeUrl(SETTINGS.discordUrl) || '#';
   document.getElementById("ytLink").href = safeUrl(SETTINGS.youtubeUrl) || '#';
 
+  // Listen for recovery links (Password Reset)
+  supabaseClient.auth.onAuthStateChange(async (event, session) => {
+    if (event === 'PASSWORD_RECOVERY') {
+      document.getElementById("resetPasswordModal")?.classList.add("active");
+    }
+  });
+
   setupNavigation();
   setupSearch();
   setupAuth();
@@ -241,6 +248,7 @@ async function checkAuthSession() {
   const { data: { session } } = await supabaseClient.auth.getSession();
   if (session && session.user) {
     currentUser = session.user;
+    
 
     // Check MFA Assurance Level
     const { data: aalData } = await supabaseClient.auth.mfa.getAuthenticatorAssuranceLevel();
@@ -254,6 +262,17 @@ async function checkAuthSession() {
       .select('*')
       .eq('id', currentUser.id)
       .maybeSingle();
+
+    if (!prof && currentUser.app_metadata?.provider === 'discord') {
+      const suggestedName = currentUser.user_metadata?.custom_claims?.global_name 
+                         || currentUser.user_metadata?.full_name 
+                         || currentUser.user_metadata?.user_name 
+                         || "Player";
+      const cleanName = suggestedName.replace(/[^a-zA-Z0-9_]/g, '').slice(0, 20);
+      document.getElementById("discordPlayerNameInput").value = cleanName;
+      document.getElementById("firstTimeDiscordModal").classList.add("active");
+      return;
+    }
 
     if (prof) {
       currentProfile = prof;
@@ -619,6 +638,65 @@ async function renderProfile() {
   } else {
     modActionsCard.style.display = "none";
     banBadge.style.display = targetBanProfile?.is_banned ? "inline-block" : "none";
+  }
+
+  // 1. Discord Connection Card
+  const discordCard = document.getElementById("discordLinkCard");
+  const discordStatus = document.getElementById("discordLinkStatus");
+  const linkDiscordBtn = document.getElementById("linkDiscordBtn");
+  const unlinkDiscordBtn = document.getElementById("unlinkDiscordBtn");
+
+  if (isViewingSelf && discordCard && currentUser) {
+    discordCard.style.display = "block";
+    const discordIdentity = currentUser.identities?.find(i => i.provider === 'discord');
+
+    if (discordIdentity) {
+      const dName = discordIdentity.identity_data?.custom_claims?.global_name || discordIdentity.identity_data?.user_name || "Connected";
+      discordStatus.innerHTML = `<span style="color: var(--success); font-weight:700;">✓ Connected:</span> Linked to Discord account (<strong>@${escapeHtml(dName)}</strong>).`;
+      linkDiscordBtn.style.display = "none";
+      unlinkDiscordBtn.style.display = "inline-block";
+      unlinkDiscordBtn.onclick = async () => {
+        if (!confirm("Are you sure you want to unlink your Discord account?")) return;
+        const { error } = await supabaseClient.auth.unlinkIdentity(discordIdentity);
+        if (error) alert("Error unlinking: " + error.message);
+        else {
+          alert("Discord unlinked successfully.");
+          location.reload();
+        }
+      };
+    } else {
+      discordStatus.innerHTML = `<span style="color: var(--text-muted);">Not Connected.</span> Link your Discord for fast 1-click login.`;
+      linkDiscordBtn.style.display = "inline-flex";
+      unlinkDiscordBtn.style.display = "none";
+      linkDiscordBtn.onclick = async () => {
+        await supabaseClient.auth.linkIdentity({
+          provider: 'discord',
+          options: { redirectTo: window.location.origin }
+        });
+      };
+    }
+  } else if (discordCard) {
+    discordCard.style.display = "none";
+  }
+
+  // 2. Recovery Email Card
+  const emailCard = document.getElementById("emailRecoveryCard");
+  const emailInput = document.getElementById("recoveryEmailInput");
+  const emailDesc = document.getElementById("emailRecoveryDesc");
+
+  if (isViewingSelf && emailCard && currentUser) {
+    emailCard.style.display = "block";
+    const isPseudo = currentUser.email?.endsWith("@anl-player.com");
+
+    if (isPseudo) {
+      emailDesc.innerHTML = `⚠️ <strong style="color: var(--accent-gold);">No recovery email linked:</strong> Using an anonymous account. Link a real email to enable password resets.`;
+      emailInput.value = "";
+    } else {
+      emailDesc.innerHTML = `✓ <strong style="color: var(--success);">Recovery Email Active:</strong> <strong>${escapeHtml(currentUser.email)}</strong>. You can reset passwords via email.`;
+      emailInput.value = currentUser.email;
+    }
+  } else if (emailCard) {
+    emailCard.style.display = "none";
   }
 
   // 2FA Security Card Visibility in Profile
@@ -1914,7 +1992,9 @@ function setupAuth() {
     const loginSubmitBtn = loginForm.querySelector("button[type='submit']");
     const identifier = document.getElementById("loginUsername").value.trim();
     const password = document.getElementById("loginPassword").value;
-    let emailToUse = identifier.includes("@") ? identifier.toLowerCase() : usernameToEmail(identifier);
+    let emailToUse = '';
+    const { data: resolvedEmail } = await supabaseClient.rpc('resolve_login_email', { identifier });
+    emailToUse = resolvedEmail || (identifier.includes("@") ? identifier.toLowerCase() : usernameToEmail(identifier));
 
     loginSubmitBtn.disabled = true;
     loginSubmitBtn.textContent = "Signing in...";
@@ -2227,5 +2307,127 @@ function setupAuth() {
     alert("🎉 Two-Factor Authentication successfully activated!");
     document.getElementById("mfaEnrollModal")?.classList.remove("active");
     renderProfile();
+  });
+
+  // 1. Continue with Discord (1-Click Login)
+  document.getElementById("discordOAuthBtn")?.addEventListener("click", async () => {
+    const { error } = await supabaseClient.auth.signInWithOAuth({
+      provider: 'discord',
+      options: { redirectTo: window.location.origin }
+    });
+    if (error) alert("Discord sign-in failed: " + error.message);
+  });
+
+  // 2. First-Time Discord Profile Setup Form
+  document.getElementById("firstTimeDiscordForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const playerName = document.getElementById("discordPlayerNameInput").value.trim();
+    const errorEl = document.getElementById("discordPlayerNameError");
+
+    if (!isValidUsername(playerName)) {
+      errorEl.textContent = "Player name must be 3-20 letters, numbers, or underscores.";
+      return;
+    }
+
+    const { error } = await supabaseClient.from('profiles').insert([{
+      id: currentUser.id,
+      username: playerName,
+      bio: "Demonlist player",
+      is_mod: false
+    }]);
+
+    if (error) {
+      errorEl.textContent = "Name already taken or database error: " + error.message;
+      return;
+    }
+
+    document.getElementById("firstTimeDiscordModal").classList.remove("active");
+    location.reload();
+  });
+
+  // 3. Forgot Password Modal Open & Submit
+  document.getElementById("openForgotPasswordBtn")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    document.getElementById("authModal").classList.remove("active");
+    document.getElementById("forgotPasswordModal").classList.add("active");
+  });
+
+  document.getElementById("closeForgotPasswordModal")?.addEventListener("click", () => {
+    document.getElementById("forgotPasswordModal").classList.remove("active");
+  });
+
+  document.getElementById("forgotPasswordForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const identifier = document.getElementById("forgotIdentifier").value.trim();
+    const errorEl = document.getElementById("forgotPasswordError");
+    const submitBtn = document.getElementById("sendResetLinkBtn");
+
+    submitBtn.disabled = true;
+    errorEl.textContent = "Resolving account...";
+
+    try {
+      // Resolve email using database function
+      const { data: targetEmail, error: rpcErr } = await supabaseClient.rpc('resolve_login_email', { identifier });
+
+      if (rpcErr || !targetEmail) {
+        errorEl.textContent = "Account not found.";
+        return;
+      }
+
+      if (targetEmail.endsWith("@anl-player.com")) {
+        errorEl.textContent = "⚠️ This account has no recovery email linked. Please open a recovery ticket in Discord.";
+        return;
+      }
+
+      const { error: resetErr } = await supabaseClient.auth.resetPasswordForEmail(targetEmail, {
+        redirectTo: window.location.origin
+      });
+
+      if (resetErr) {
+        errorEl.textContent = "Error sending reset email: " + resetErr.message;
+      } else {
+        alert(`Reset link sent to ${targetEmail}! Please check your inbox.`);
+        document.getElementById("forgotPasswordModal").classList.remove("active");
+      }
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+
+  // 4. Set New Password Form (Arriving from reset link)
+  document.getElementById("setNewPasswordForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const newPassword = document.getElementById("newPasswordInput").value;
+    const errorEl = document.getElementById("setNewPasswordError");
+
+    const { error } = await supabaseClient.auth.updateUser({ password: newPassword });
+
+    if (error) {
+      errorEl.textContent = "Failed to update password: " + error.message;
+    } else {
+      alert("Password updated successfully! You are now logged in.");
+      document.getElementById("resetPasswordModal").classList.remove("active");
+      location.reload();
+    }
+  });
+
+  // 5. Update / Verify Recovery Email Form
+  document.getElementById("updateEmailForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const newEmail = document.getElementById("recoveryEmailInput").value.trim().toLowerCase();
+    const noticeEl = document.getElementById("emailUpdateNotice");
+    const saveBtn = document.getElementById("saveEmailBtn");
+
+    saveBtn.disabled = true;
+    noticeEl.textContent = "Sending confirmation link...";
+
+    const { error } = await supabaseClient.auth.updateUser({ email: newEmail });
+    saveBtn.disabled = false;
+
+    if (error) {
+      noticeEl.innerHTML = `<span style="color:var(--danger);">Error: ${escapeHtml(error.message)}</span>`;
+    } else {
+      noticeEl.innerHTML = `<span style="color:var(--success);">Confirmation link sent to <strong>${escapeHtml(newEmail)}</strong>. Please click the link in your email to verify.</span>`;
+    }
   });
 }
