@@ -1,4 +1,3 @@
-
 let currentLevels = [];
 let currentTab = "main";
 let selectedLevelId = null;
@@ -10,6 +9,7 @@ let currentProfileSort = "rank";
 let targetBanProfile = null;
 let pendingSubmissionsCache = [];
 let currentRejectSubmissionId = null;
+let profilesCache = {};
 
 // Auth Rate-Limiting & MFA State
 let loginLockoutInterval = null;
@@ -86,6 +86,37 @@ function calculatePointsForRecord(rank, percentage, minReq = 100) {
   return 0;
 }
 
+// Display Name Helper
+function getDisplayName(username, profile = null) {
+  if (!username) return '';
+  if (profile && profile.display_name && profile.display_name.trim()) {
+    return profile.display_name.trim();
+  }
+  const cached = profilesCache[username.toLowerCase().trim()];
+  if (cached && cached.display_name && cached.display_name.trim()) {
+    return cached.display_name.trim();
+  }
+  return username;
+}
+
+async function fetchProfilesCache() {
+  try {
+    const { data, error } = await supabaseClient
+      .from('profiles')
+      .select('id, username, display_name');
+    if (!error && data) {
+      profilesCache = {};
+      data.forEach(p => {
+        if (p.username) {
+          profilesCache[p.username.toLowerCase().trim()] = p;
+        }
+      });
+    }
+  } catch (err) {
+    console.warn("Could not cache profiles:", err);
+  }
+}
+
 // Rate Limiting Helpers
 function isLoginLocked() {
   const lockoutUntil = parseInt(localStorage.getItem("anl_login_lockout_until") || "0", 10);
@@ -160,6 +191,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   setupModModals();
   setupDelegatedEvents();
 
+  await fetchProfilesCache();
   await checkAuthSession();
   await fetchLevelsFromDB();
   await refreshQueueState();
@@ -277,7 +309,6 @@ async function checkAuthSession() {
   const { data: { session } } = await supabaseClient.auth.getSession();
   if (session && session.user) {
     currentUser = session.user;
-    
 
     // Check MFA Assurance Level
     const { data: aalData } = await supabaseClient.auth.mfa.getAuthenticatorAssuranceLevel();
@@ -340,10 +371,11 @@ async function checkAuthSession() {
 }
 
 function setLoggedInState() {
-  const playerName = currentProfile?.username 
-                  || currentUser.user_metadata?.player_name 
-                  || currentUser.email?.split('@')[0] 
-                  || "Player";
+  const rawPlayerName = currentProfile?.username 
+                     || currentUser.user_metadata?.player_name 
+                     || currentUser.email?.split('@')[0] 
+                     || "Player";
+  const displayGreeting = currentProfile?.display_name?.trim() || rawPlayerName;
 
   document.querySelectorAll(".mod-only").forEach(el => {
     el.style.display = isModerator ? "inline-block" : "none";
@@ -355,7 +387,7 @@ function setLoggedInState() {
   }
 
   const authBtn = document.getElementById("authBtn");
-  authBtn.textContent = `Logout (${playerName})`;
+  authBtn.textContent = `Logout (${displayGreeting})`;
   authBtn.onclick = async () => {
     await supabaseClient.auth.signOut();
     location.reload();
@@ -459,6 +491,7 @@ async function fetchLevelsFromDB() {
   }
 
   currentLevels = data || [];
+  await fetchProfilesCache();
   renderList();
   renderLeaderboard();
   renderProfile();
@@ -507,7 +540,6 @@ function populateDropdowns() {
   if (adminSelect) adminSelect.innerHTML = optionsHtml;
 }
 
-// Loophole 1 Fix: Skip duplicate points if player is level verifier
 function calculateAllPlayerStats() {
   const playerStats = {};
 
@@ -603,18 +635,25 @@ function calculateAllPlayerStats() {
 function renderLeaderboard() {
   const sorted = calculateAllPlayerStats();
   const tbody = document.getElementById("leaderboardBody");
-  tbody.innerHTML = sorted.map((p) => `
-    <tr>
-      <td><strong>#${p.rank}</strong></td>
-      <td>
-        <a href="#" class="player-link" data-player="${escapeHtml(p.name)}">${escapeHtml(p.name)}</a>
-      </td>
-      <td style="color: var(--accent); font-weight:700;">${p.points.toFixed(2)}</td>
-      <td>${p.completions}</td>
-      <td>${p.progressions}</td>
-      <td>${p.verifications}</td>
-    </tr>
-  `).join("");
+  tbody.innerHTML = sorted.map((p) => {
+    const dName = getDisplayName(p.name);
+    const hasDiff = dName.toLowerCase() !== p.name.toLowerCase();
+    return `
+      <tr>
+        <td><strong>#${p.rank}</strong></td>
+        <td>
+          <a href="#" class="player-link" data-player="${escapeHtml(p.name)}">
+            <strong>${escapeHtml(dName)}</strong>
+            ${hasDiff ? `<span class="text-muted" style="font-size:0.8rem; margin-left:4px;">(@${escapeHtml(p.name)})</span>` : ''}
+          </a>
+        </td>
+        <td style="color: var(--accent); font-weight:700;">${p.points.toFixed(2)}</td>
+        <td>${p.completions}</td>
+        <td>${p.progressions}</td>
+        <td>${p.verifications}</td>
+      </tr>
+    `;
+  }).join("");
 }
 
 async function renderProfile() {
@@ -669,7 +708,7 @@ async function renderProfile() {
     banBadge.style.display = targetBanProfile?.is_banned ? "inline-block" : "none";
   }
 
-  // 1. Discord Connection Card
+  // 1. Discord Connection Card & Unlink Protection
   const discordCard = document.getElementById("discordLinkCard");
   const discordStatus = document.getElementById("discordLinkStatus");
   const linkDiscordBtn = document.getElementById("linkDiscordBtn");
@@ -684,13 +723,22 @@ async function renderProfile() {
       discordStatus.innerHTML = `<span style="color: var(--success); font-weight:700;">✓ Connected:</span> Linked to Discord account (<strong>@${escapeHtml(dName)}</strong>).`;
       linkDiscordBtn.style.display = "none";
       unlinkDiscordBtn.style.display = "inline-block";
+
       unlinkDiscordBtn.onclick = async () => {
-        // Prevent orphaning the account if Discord is the only login method
-        if (!currentUser.identities || currentUser.identities.length <= 1) {
-          alert("⚠️ You cannot unlink Discord because it is your only sign-in method.\n\nTo unlink Discord, please link a recovery email or set a password in your settings first so you don't lose access to your account.");
+        const hasOtherIdentity = currentUser.identities && currentUser.identities.some(i => i.provider !== 'discord');
+
+        // If Discord is the ONLY login method -> Prompt to create password
+        if (!hasOtherIdentity) {
+          const username = currentProfile?.username || currentUser.user_metadata?.player_name || "";
+          document.getElementById("unlinkUsernameInput").value = username;
+          document.getElementById("unlinkPasswordInput").value = "";
+          document.getElementById("unlinkPasswordConfirmInput").value = "";
+          document.getElementById("unlinkPasswordError").textContent = "";
+          document.getElementById("unlinkPasswordModal").classList.add("active");
           return;
         }
 
+        // If user already has a password/email login method
         if (!confirm("Are you sure you want to disconnect your Discord account?")) return;
 
         const { error } = await supabaseClient.auth.unlinkIdentity(discordIdentity);
@@ -754,6 +802,18 @@ async function renderProfile() {
     mfaCard.style.display = "none";
   }
 
+  // Display Name Card
+  const displayNameCard = document.getElementById("displayNameCard");
+  if (isViewingSelf && displayNameCard) {
+    displayNameCard.style.display = "block";
+    const previewEl = document.getElementById("currentUsernamePreview");
+    if (previewEl) previewEl.textContent = `@${currentProfile?.username || ''}`;
+    const inputEl = document.getElementById("updateDisplayNameInput");
+    if (inputEl) inputEl.value = currentProfile?.display_name || "";
+  } else if (displayNameCard) {
+    displayNameCard.style.display = "none";
+  }
+
   const bioEditCard = document.getElementById("bioEditCard");
   if (isViewingSelf) {
     bioEditCard.style.display = "block";
@@ -771,8 +831,22 @@ async function renderProfile() {
     bioDisplay.textContent = `Showing Ascent Nation public profile for ${targetPlayerName}.`;
   }
 
-  document.getElementById("profilePlayerName").textContent = targetPlayerName;
-  document.getElementById("profileAvatar").textContent = (targetPlayerName.charAt(0) || "?").toUpperCase();
+  const targetUsername = targetBanProfile?.username || targetPlayerName;
+  const targetDisplayName = targetBanProfile?.display_name?.trim() || targetUsername;
+  const isDifferentDisplay = targetDisplayName.toLowerCase() !== targetUsername.toLowerCase();
+
+  document.getElementById("profilePlayerName").textContent = targetDisplayName;
+  const handleEl = document.getElementById("profileUsernameHandle");
+  if (handleEl) {
+    if (isDifferentDisplay) {
+      handleEl.textContent = `@${targetUsername}`;
+      handleEl.style.display = "inline";
+    } else {
+      handleEl.style.display = "none";
+    }
+  }
+
+  document.getElementById("profileAvatar").textContent = (targetDisplayName.charAt(0) || "?").toUpperCase();
   document.getElementById("profileBadge").textContent = isViewingSelf 
     ? (isModerator ? "Moderator (Me)" : "My Account") 
     : (targetBanProfile?.is_mod ? "Moderator" : "Player");
@@ -843,7 +917,6 @@ async function renderProfile() {
   await renderProfileSubmissions(isViewingSelf);
 }
 
-// Loophole 4 Fix: Accurate queue position using RPC
 async function renderProfileSubmissions(isViewingSelf) {
   const container = document.getElementById("myPrivateSubmissionsCard");
   const list = document.getElementById("profileSubmissionsList");
@@ -928,7 +1001,6 @@ async function renderProfileSubmissions(isViewingSelf) {
   }).join("");
 }
 
-// Render Moderator Review Queue
 function renderQueue() {
   const container = document.getElementById("queueItemsList");
   if (!isModerator) {
@@ -969,6 +1041,8 @@ function renderQueue() {
 
     const proofLink = safeUrl(sub.proof_url);
     const rawLink = safeUrl(sub.raw_footage_url);
+    const playerDisplayName = getDisplayName(sub.player_name);
+    const isDiff = playerDisplayName.toLowerCase() !== sub.player_name.toLowerCase();
 
     return `
       <div class="queue-card">
@@ -984,7 +1058,11 @@ function renderQueue() {
         <div class="queue-grid">
           <div>
             <span class="text-muted">Player:</span>
-            <strong><a href="#" class="player-link" data-player="${escapeHtml(sub.player_name)}">${escapeHtml(sub.player_name)}</a></strong>
+            <strong>
+              <a href="#" class="player-link" data-player="${escapeHtml(sub.player_name)}">
+                ${escapeHtml(playerDisplayName)} ${isDiff ? `(@${escapeHtml(sub.player_name)})` : ''}
+              </a>
+            </strong>
           </div>
           <div>
             <span class="text-muted">Type:</span>
@@ -1040,7 +1118,6 @@ function renderQueue() {
   }).join("");
 }
 
-// Loophole 2 Fix: Update existing record if new percentage is higher
 async function approveSubmission(subId) {
   if (!isModerator) return;
   const sub = pendingSubmissionsCache.find(s => s.id == subId);
@@ -1243,7 +1320,8 @@ function renderList() {
     filtered = filtered.filter(lvl =>
       lvl.name.toLowerCase().includes(query) ||
       lvl.creator.toLowerCase().includes(query) ||
-      (lvl.verifier && lvl.verifier.toLowerCase().includes(query))
+      (lvl.verifier && lvl.verifier.toLowerCase().includes(query)) ||
+      (lvl.verifier && getDisplayName(lvl.verifier).toLowerCase().includes(query))
     );
   }
 
@@ -1266,6 +1344,7 @@ function renderList() {
     const thumbUrl = getYouTubeThumbnailUrl(level.video_url);
     const maxPts = calculatePoints(level.rank);
     const minReq = level.min_percentage ? parseInt(level.min_percentage, 10) : 100;
+    const vDisplay = getDisplayName(level.verifier);
 
     let pointsText = "";
     if (maxPts > 0) {
@@ -1290,7 +1369,7 @@ function renderList() {
         <div class="item-meta-row">
           <span class="item-author">by ${escapeHtml(level.creator)}</span>
           <span class="item-sep">|</span>
-          <span class="item-verifier">${escapeHtml(level.verifier || 'Unknown')}</span>
+          <span class="item-verifier">${escapeHtml(vDisplay || 'Unknown')}</span>
         </div>
         <div class="item-points-row">
           <span class="item-points-label">${pointsText}</span>
@@ -1322,6 +1401,7 @@ function renderLevelDetails(level) {
   const verifierBonus = (points * SETTINGS.verifierBonusPct).toFixed(2);
   const totalVerifierPts = (points * (1 + SETTINGS.verifierBonusPct)).toFixed(2);
   const embedUrl = getYouTubeEmbedUrl(level.video_url);
+  const verifierDisplayName = getDisplayName(level.verifier);
 
   container.innerHTML = `
     <div class="level-header">
@@ -1329,7 +1409,7 @@ function renderLevelDetails(level) {
         <h2>#${level.rank} - ${escapeHtml(level.name)}</h2>
         <p>
           Created by <strong>${escapeHtml(level.creator)}</strong> | 
-          Verified by <a href="#" class="player-link" data-player="${escapeHtml(level.verifier)}"><strong>${escapeHtml(level.verifier)}</strong></a>
+          Verified by <a href="#" class="player-link" data-player="${escapeHtml(level.verifier)}"><strong>${escapeHtml(verifierDisplayName)}</strong></a>
         </p>
       </div>
       <div class="points-pill">
@@ -1371,10 +1451,15 @@ function renderLevelDetails(level) {
         ${level.victors && level.victors.length > 0 ? level.victors.map(v => {
           const validProof = safeUrl(v.proof_url);
           const pct = v.percentage || 100;
+          const vDisplayName = getDisplayName(v.player_name);
+          const hasDiff = vDisplayName.toLowerCase() !== (v.player_name || '').toLowerCase();
           return `
             <div class="victor-row">
               <div>
-                <a href="#" class="player-link" data-player="${escapeHtml(v.player_name)}"><strong>${escapeHtml(v.player_name)}</strong></a>
+                <a href="#" class="player-link" data-player="${escapeHtml(v.player_name)}">
+                  <strong>${escapeHtml(vDisplayName)}</strong>
+                  ${hasDiff ? `<span class="text-muted" style="font-size:0.75rem; margin-left:4px;">(@${escapeHtml(v.player_name)})</span>` : ''}
+                </a>
                 <span class="pct-badge ${pct === 100 ? 'pct-100' : 'pct-partial'}">${pct}%</span>
                 <span class="text-muted" style="font-size:0.8rem; margin-left:6px;">(${escapeHtml(v.device || 'PC')})</span>
               </div>
@@ -1407,7 +1492,7 @@ function setupForms() {
     });
   }
 
-  // 1. Submit Record to Queue Form (Loophole 6 Fix: Button state protection)
+  // 1. Submit Record to Queue Form
   const recordSubForm = document.getElementById("recordSubmissionForm");
   if (recordSubForm) {
     recordSubForm.addEventListener("submit", async (e) => {
@@ -1496,7 +1581,7 @@ function setupForms() {
     });
   }
 
-  // 2. Manual Accept Submission Form (Loophole 2 & 3 Fixes)
+  // 2. Manual Accept Submission Form
   const manualForm = document.getElementById("manualAcceptForm");
   if (manualForm) {
     manualForm.addEventListener("submit", async (e) => {
@@ -1635,7 +1720,43 @@ function setupForms() {
     });
   }
 
-  // 3. Update Bio
+  // 3. Update Display Name Form
+  document.getElementById("updateDisplayNameForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!currentUser) return;
+
+    const newDisplayName = document.getElementById("updateDisplayNameInput").value.trim();
+
+    const { error } = await supabaseClient
+      .from('profiles')
+      .update({ display_name: newDisplayName || null })
+      .eq('id', currentUser.id);
+
+    if (error) {
+      alert("Failed to update display name: " + error.message);
+    } else {
+      if (currentProfile) currentProfile.display_name = newDisplayName || null;
+      if (profilesCache && currentProfile?.username) {
+        profilesCache[currentProfile.username.toLowerCase()] = {
+          ...profilesCache[currentProfile.username.toLowerCase()],
+          display_name: newDisplayName || null
+        };
+      }
+      alert(newDisplayName ? `Display name updated to "${newDisplayName}"!` : "Display name reset to username.");
+      setLoggedInState();
+      renderProfile();
+      renderList();
+      renderLeaderboard();
+    }
+  });
+
+  document.getElementById("resetDisplayNameBtn")?.addEventListener("click", () => {
+    const input = document.getElementById("updateDisplayNameInput");
+    if (input) input.value = "";
+    document.getElementById("updateDisplayNameForm")?.dispatchEvent(new Event('submit'));
+  });
+
+  // 4. Update Bio
   document.getElementById("updateBioForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!currentUser) return;
@@ -1649,7 +1770,7 @@ function setupForms() {
     }
   });
 
-  // 4. Direct Victor Add (Loophole 2 Fix)
+  // 5. Direct Victor Add
   document.getElementById("addVictorForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!isModerator) return;
@@ -1706,7 +1827,7 @@ function setupForms() {
     }
   });
 
-  // 5. Direct Level Add (Loophole 3 Fix)
+  // 6. Direct Level Add
   document.getElementById("addLevelForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!isModerator) return;
@@ -1822,7 +1943,7 @@ function setupModModals() {
     }
   });
 
-  // Ban Modal (Loophole 5 Fix: Moderation Guard)
+  // Ban Modal
   const banModal = document.getElementById("banModal");
   document.getElementById("openBanModalBtn")?.addEventListener("click", () => {
     if (!targetBanProfile) return;
@@ -2024,7 +2145,6 @@ function setupAuth() {
       });
 
       if (error) {
-        // Handle Supabase 429 Rate Limits
         const isRateLimited = error.status === 429 
           || error.statusCode === 429
           || error.code === 'over_request_rate_limit'
@@ -2039,7 +2159,6 @@ function setupAuth() {
           return;
         }
 
-        // Standard 400 Credential Error
         let failCount = parseInt(localStorage.getItem("anl_login_fail_count") || "0", 10) + 1;
 
         if (failCount >= 5) {
@@ -2065,7 +2184,6 @@ function setupAuth() {
         return;
       }
 
-      // Successful login without MFA
       localStorage.removeItem("anl_login_fail_count");
       localStorage.removeItem("anl_login_lockout_until");
       modal.classList.remove("active");
@@ -2129,7 +2247,7 @@ function setupAuth() {
     }
   });
 
-  // MFA 2: Verify Challenge Form Submission
+  // MFA Challenge Verify Form
   document.getElementById("mfaChallengeForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const code = document.getElementById("mfaChallengeInput").value.trim();
@@ -2150,7 +2268,6 @@ function setupAuth() {
       mfaFailedAttempts++;
       const isOwner = currentPendingMfaUsername && currentPendingMfaUsername.toLowerCase().includes("ascent");
 
-      // EMERGENCY KILL-SWITCH: Triggered on 3 failed attempts
       if (mfaFailedAttempts >= 3) {
         if (isOwner) {
           await supabaseClient.rpc('trigger_emergency_lockdown', {
@@ -2169,7 +2286,6 @@ function setupAuth() {
       return;
     }
 
-    // Success: upgraded to AAL2
     document.getElementById("mfaChallengeModal")?.classList.remove("active");
     localStorage.removeItem("anl_login_fail_count");
     localStorage.removeItem("anl_login_lockout_until");
@@ -2178,14 +2294,13 @@ function setupAuth() {
     renderList();
   });
 
-  // MFA 3: Cancel Challenge Modal
   document.getElementById("mfaAbortBtn")?.addEventListener("click", async () => {
     await supabaseClient.auth.signOut();
     document.getElementById("mfaChallengeModal")?.classList.remove("active");
     location.reload();
   });
 
-  // MFA 4: Setup 2FA Button in Profile (Auto-cleans stale unverified factors)
+  // Setup 2FA Button in Profile
   document.getElementById("openMfaSetupBtn")?.addEventListener("click", async () => {
     const enrollModal = document.getElementById("mfaEnrollModal");
     const qrContainer = document.getElementById("mfaQrContainer");
@@ -2197,7 +2312,6 @@ function setupAuth() {
     if (enrollModal) enrollModal.classList.add("active");
 
     try {
-      // 1. Remove any previous unverified/abandoned factors
       const { data: existingFactors } = await supabaseClient.auth.mfa.listFactors();
       if (existingFactors?.totp?.length > 0) {
         for (const factor of existingFactors.totp) {
@@ -2207,7 +2321,6 @@ function setupAuth() {
         }
       }
 
-      // 2. Enroll a clean, fresh factor
       const { data, error } = await supabaseClient.auth.mfa.enroll({
         factorType: 'totp',
         issuer: 'Ascent Nation List',
@@ -2222,7 +2335,6 @@ function setupAuth() {
       currentEnrollingFactorId = data.id;
       if (secretText) secretText.textContent = data.totp.secret;
 
-      // 3. Render clean, scannable QR code
       if (qrContainer) {
         const rawQr = data.totp.qr_code;
         let svgString = '';
@@ -2237,7 +2349,6 @@ function setupAuth() {
           const svgEl = doc.querySelector('svg');
 
           if (svgEl) {
-            // Ensure viewBox exists so lines render with sub-pixel sharpness
             const width = svgEl.getAttribute('width') || '256';
             const height = svgEl.getAttribute('height') || '256';
             if (!svgEl.getAttribute('viewBox')) {
@@ -2246,7 +2357,6 @@ function setupAuth() {
             svgEl.removeAttribute('width');
             svgEl.removeAttribute('height');
 
-            // Wrap inside a true white card with a clean quiet zone
             qrContainer.innerHTML = '';
             const whiteCard = document.createElement('div');
             whiteCard.className = 'mfa-qr-card';
@@ -2261,7 +2371,6 @@ function setupAuth() {
     }
   });
 
-  // Clean up if user closes modal before completing verification
   document.getElementById("closeMfaEnrollModal")?.addEventListener("click", async () => {
     document.getElementById("mfaEnrollModal")?.classList.remove("active");
     if (currentEnrollingFactorId) {
@@ -2272,7 +2381,6 @@ function setupAuth() {
     }
   });
 
-  // MFA 5: Verify and Activate 2FA Enrollment Form
   document.getElementById("mfaEnrollForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const code = document.getElementById("mfaEnrollCodeInput").value.trim();
@@ -2299,7 +2407,7 @@ function setupAuth() {
     renderProfile();
   });
 
-  // 1. Continue with Discord (1-Click Login)
+  // Discord 1-Click Login
   document.getElementById("discordOAuthBtn")?.addEventListener("click", async () => {
     const { error } = await supabaseClient.auth.signInWithOAuth({
       provider: 'discord',
@@ -2308,7 +2416,7 @@ function setupAuth() {
     if (error) alert("Discord sign-in failed: " + error.message);
   });
 
-  // 2. First-Time Discord Profile Setup Form
+  // First-Time Discord Profile Setup Form
   document.getElementById("firstTimeDiscordForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const playerName = document.getElementById("discordPlayerNameInput").value.trim();
@@ -2335,7 +2443,68 @@ function setupAuth() {
     location.reload();
   });
 
-  // 3. Forgot Password Modal Open & Submit
+  // Unlink Discord by Setting Account Password
+  document.getElementById("closeUnlinkPasswordModal")?.addEventListener("click", () => {
+    document.getElementById("unlinkPasswordModal").classList.remove("active");
+  });
+
+  document.getElementById("unlinkPasswordForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const password = document.getElementById("unlinkPasswordInput").value;
+    const confirmPassword = document.getElementById("unlinkPasswordConfirmInput").value;
+    const errorEl = document.getElementById("unlinkPasswordError");
+    const submitBtn = document.getElementById("unlinkPasswordSubmitBtn");
+
+    if (password.length < 8) {
+      errorEl.textContent = "Password must be at least 8 characters.";
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      errorEl.textContent = "Passwords do not match.";
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Setting password & disconnecting Discord...";
+    errorEl.textContent = "";
+
+    try {
+      const discordIdentity = currentUser.identities?.find(i => i.provider === 'discord');
+      const username = currentProfile?.username || currentUser.user_metadata?.player_name || "";
+
+      // 1. Set password on the account
+      const { error: pwdErr } = await supabaseClient.auth.updateUser({ password: password });
+      if (pwdErr) {
+        errorEl.textContent = "Could not set password: " + pwdErr.message;
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Set Password & Disconnect Discord";
+        return;
+      }
+
+      // 2. Unlink Discord identity
+      if (discordIdentity) {
+        const { error: unlinkErr } = await supabaseClient.auth.unlinkIdentity(discordIdentity);
+        if (unlinkErr) {
+          errorEl.textContent = "Password updated, but could not unlink Discord: " + unlinkErr.message;
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Set Password & Disconnect Discord";
+          return;
+        }
+      }
+
+      alert(`Success! Your account (@${username}) now has a password and Discord has been disconnected.\n\nYou can now sign in using your username and new password.`);
+      document.getElementById("unlinkPasswordModal").classList.remove("active");
+      location.reload();
+    } catch (err) {
+      errorEl.textContent = "Unexpected error: " + err.message;
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Set Password & Disconnect Discord";
+    }
+  });
+
+  // Forgot Password Modal Open & Submit
   document.getElementById("openForgotPasswordBtn")?.addEventListener("click", (e) => {
     e.preventDefault();
     document.getElementById("authModal").classList.remove("active");
@@ -2356,7 +2525,6 @@ function setupAuth() {
     errorEl.textContent = "Resolving account...";
 
     try {
-      // Resolve email using database function
       const { data: targetEmail, error: rpcErr } = await supabaseClient.rpc('resolve_login_email', { identifier });
 
       if (rpcErr || !targetEmail) {
@@ -2384,7 +2552,7 @@ function setupAuth() {
     }
   });
 
-  // 4. Set New Password Form (Arriving from reset link)
+  // Set New Password Form
   document.getElementById("setNewPasswordForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const newPassword = document.getElementById("newPasswordInput").value;

@@ -372,8 +372,9 @@
           <div class="profile-main-info">
             <div class="avatar-circle" id="profileAvatar">?</div>
             <div>
-              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <div style="display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;">
                 <h2 id="profilePlayerName">Player</h2>
+                <span id="profileUsernameHandle" class="profile-username-handle" style="display: none;">@username</span>
                 <span id="profileBanBadge" class="status-badge badge-rejected" style="display:none;">BANNED</span>
               </div>
               <span class="user-badge" id="profileBadge">Player</span>
@@ -492,6 +493,27 @@
               </button>
             </div>
           </div>
+        </div>
+
+        <!-- DISPLAY NAME MANAGEMENT -->
+        <div class="profile-settings-card" id="displayNameCard" style="display: none; margin-top: 20px;">
+          <h3>Edit Display Name</h3>
+          <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 12px;">
+            Set a custom display name across the list. Your username (<strong id="currentUsernamePreview">@username</strong>) remains your permanent sign-in identifier and records anchor.
+          </p>
+          <form id="updateDisplayNameForm">
+            <label for="updateDisplayNameInput">Display Name (Optional, max 30 characters)</label>
+            <input 
+              type="text" 
+              id="updateDisplayNameInput" 
+              maxlength="30" 
+              placeholder="Leave empty to use username"
+            >
+            <div style="display: flex; gap: 10px; align-items: center; margin-top: 4px; flex-wrap: wrap;">
+              <button type="submit" class="submit-btn" style="width: auto; padding: 8px 18px;">Save Display Name</button>
+              <button type="button" id="resetDisplayNameBtn" class="btn-secondary" style="padding: 8px 14px;">Reset to Username</button>
+            </div>
+          </form>
         </div>
 
         <!-- BIO MANAGEMENT -->
@@ -938,6 +960,34 @@
         <div id="mfaEnrollError" class="login-error" style="margin-bottom: 12px;"></div>
 
         <button type="submit" id="mfaEnrollSubmitBtn" class="submit-btn">Verify & Activate 2FA</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: UNLINK DISCORD & SET PASSWORD -->
+  <div id="unlinkPasswordModal" class="modal">
+    <div class="modal-content">
+      <span class="close-btn" id="closeUnlinkPasswordModal">&times;</span>
+      <h3 style="margin-bottom: 8px; color: var(--accent);">🔑 Set Password to Unlink Discord</h3>
+      <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 14px;">
+        Discord is currently your only sign-in method. Create a password for your account so you can log in directly with your username. Your player name, statistics, and verifications will remain completely unchanged.
+      </p>
+
+      <form id="unlinkPasswordForm">
+        <label for="unlinkUsernameInput">Account Username (Permanent)</label>
+        <input type="text" id="unlinkUsernameInput" disabled readonly style="background: rgba(255,255,255,0.05); color: var(--accent); font-weight: 700;">
+
+        <label for="unlinkPasswordInput">New Password (Minimum 8 characters)</label>
+        <input type="password" id="unlinkPasswordInput" minlength="8" placeholder="At least 8 characters" required autocomplete="new-password">
+
+        <label for="unlinkPasswordConfirmInput">Confirm Password</label>
+        <input type="password" id="unlinkPasswordConfirmInput" minlength="8" placeholder="Repeat new password" required autocomplete="new-password">
+
+        <div id="unlinkPasswordError" class="login-error"></div>
+
+        <button type="submit" id="unlinkPasswordSubmitBtn" class="submit-btn" style="margin-top: 14px;">
+          Set Password & Disconnect Discord
+        </button>
       </form>
     </div>
   </div>
