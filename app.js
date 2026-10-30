@@ -2443,7 +2443,7 @@ function setupAuth() {
     location.reload();
   });
 
-  // Unlink Discord by Setting Account Password
+  // Unlink Discord by Setting Account Password via Database RPC
   document.getElementById("closeUnlinkPasswordModal")?.addEventListener("click", () => {
     document.getElementById("unlinkPasswordModal").classList.remove("active");
   });
@@ -2466,34 +2466,38 @@ function setupAuth() {
     }
 
     submitBtn.disabled = true;
-    submitBtn.textContent = "Setting password & disconnecting Discord...";
+    submitBtn.textContent = "Setting credentials & unlinking Discord...";
     errorEl.textContent = "";
 
     try {
-      const discordIdentity = currentUser.identities?.find(i => i.provider === 'discord');
       const username = currentProfile?.username || currentUser.user_metadata?.player_name || "";
+      const anlEmail = usernameToEmail(username);
 
-      // 1. Set password on the account
-      const { error: pwdErr } = await supabaseClient.auth.updateUser({ password: password });
-      if (pwdErr) {
-        errorEl.textContent = "Could not set password: " + pwdErr.message;
+      // 1. Run the database function to swap Discord for an @anl-player.com email identity
+      const { data, error: rpcErr } = await supabaseClient.rpc('unlink_discord_and_set_password', {
+        new_password: password
+      });
+
+      if (rpcErr) {
+        errorEl.textContent = "Failed to unlink: " + rpcErr.message;
         submitBtn.disabled = false;
         submitBtn.textContent = "Set Password & Disconnect Discord";
         return;
       }
 
-      // 2. Unlink Discord identity
-      if (discordIdentity) {
-        const { error: unlinkErr } = await supabaseClient.auth.unlinkIdentity(discordIdentity);
-        if (unlinkErr) {
-          errorEl.textContent = "Password updated, but could not unlink Discord: " + unlinkErr.message;
-          submitBtn.disabled = false;
-          submitBtn.textContent = "Set Password & Disconnect Discord";
-          return;
-        }
+      // 2. Sign in with the newly minted credentials
+      await supabaseClient.auth.signOut();
+      const { error: loginErr } = await supabaseClient.auth.signInWithPassword({
+        email: anlEmail,
+        password: password
+      });
+
+      if (loginErr) {
+        alert(`Discord successfully disconnected!\n\nPlease log in using your username (${username}) and password.`);
+      } else {
+        alert(`🎉 Discord disconnected successfully!\n\nYour account has been switched to username/password login:\n• Username: ${username}\n• Login Email: ${anlEmail}\n\nYou are now signed in.`);
       }
 
-      alert(`Success! Your account (@${username}) now has a password and Discord has been disconnected.\n\nYou can now sign in using your username and new password.`);
       document.getElementById("unlinkPasswordModal").classList.remove("active");
       location.reload();
     } catch (err) {
