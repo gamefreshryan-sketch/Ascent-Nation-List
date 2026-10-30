@@ -256,12 +256,33 @@ body {
   font-size: 0.85rem;
   transition: all 0.2s ease;
   font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .auth-btn:hover {
   border-color: var(--accent);
   box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
   color: var(--accent);
+}
+
+/* Discord Primary Auth Button in Nav */
+.discord-auth-nav {
+  background: #5865F2 !important;
+  color: #ffffff !important;
+  border: none !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  font-weight: 700 !important;
+  box-shadow: 0 2px 10px rgba(88, 101, 242, 0.35) !important;
+  transition: background 0.15s ease, transform 0.15s ease !important;
+}
+
+.discord-auth-nav:hover {
+  background: #4752c4 !important;
+  transform: translateY(-1px);
 }
 
 .nav-hamburger {
@@ -908,6 +929,13 @@ input:focus, select:focus, textarea:focus {
   letter-spacing: 0.5px;
 }
 
+.profile-username-handle {
+  font-size: 1rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  vertical-align: middle;
+}
+
 .profile-bio-text {
   font-size: 0.88rem;
   color: var(--text-muted);
@@ -1038,7 +1066,7 @@ input:focus, select:focus, textarea:focus {
 }
 
 /* ==========================================================================
-   SUBMISSIONS COLLAPSIBLE DROPDOWN BAR (MODERN THEMED)
+   SUBMISSIONS COLLAPSIBLE DROPDOWN BAR
    ========================================================================== */
 .submissions-dropdown-card {
   padding: 0 !important;
@@ -1285,7 +1313,7 @@ input:focus, select:focus, textarea:focus {
 }
 
 /* ==========================================================================
-   MODAL WINDOWS & AUTHENTICATION
+   MODAL WINDOWS & DIALOGS
    ========================================================================== */
 .modal {
   display: none;
@@ -1327,32 +1355,6 @@ input:focus, select:focus, textarea:focus {
   max-width: 680px;
 }
 
-.auth-tabs {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 20px;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 8px;
-}
-
-.auth-tab-btn {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  font-size: 1rem;
-  font-weight: 700;
-  cursor: pointer;
-  padding: 8px 14px;
-  border-radius: var(--radius-sm);
-  font-family: var(--font-heading);
-  transition: all 0.2s ease;
-}
-
-.auth-tab-btn.active {
-  color: var(--accent);
-  background: var(--bg-card);
-}
-
 .close-btn {
   position: absolute;
   top: 14px;
@@ -1361,7 +1363,7 @@ input:focus, select:focus, textarea:focus {
   cursor: pointer;
   color: var(--text-muted);
   transition: color 0.15s;
-  z-index: 10; /* <-- Guarantees it is always on top */
+  z-index: 10;
 }
 
 .close-btn:hover {
@@ -1803,103 +1805,4 @@ input:focus, select:focus, textarea:focus {
   .journey-arrow {
     transform: rotate(90deg);
   }
-}
-
-/* ==========================================================================
-   MFA & TWO-FACTOR AUTHENTICATION STYLES
-   ========================================================================== */
-.mfa-digit-input {
-  font-family: 'Montserrat', monospace !important;
-  font-size: 1.8rem !important;
-  letter-spacing: 8px !important;
-  text-align: center !important;
-  padding: 12px 16px !important;
-  border-radius: var(--radius-md) !important;
-  border: 2px solid var(--border) !important;
-  color: var(--accent) !important;
-  background: var(--bg-card) !important;
-  width: 100% !important;
-  margin: 10px 0 16px 0 !important;
-}
-
-.mfa-digit-input:focus {
-  border-color: var(--accent) !important;
-  box-shadow: 0 0 15px rgba(56, 189, 248, 0.3) !important;
-}
-
-.mfa-qr-card {
-  background: #ffffff !important;
-  padding: 16px !important;
-  border-radius: 10px !important;
-  width: 210px !important;
-  height: 210px !important;
-  margin: 0 auto !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5) !important;
-}
-
-.mfa-qr-card svg {
-  width: 100% !important;
-  height: 100% !important;
-  display: block !important;
-  border-radius: 0 !important; /* Keeps finder squares intact so phones can scan */
-}
-
-/* ==========================================================================
-   DISCORD AUTH, DIVIDERS & RECOVERY STYLES
-   ========================================================================== */
-.btn-discord-auth {
-  width: 100%;
-  margin-top: 25px; /* <-- ADD THIS LINE to clear the close button */
-  background: #5865F2;
-  color: #ffffff;
-  border: none;
-  font-weight: 700;
-  padding: 11px 16px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  font-size: 0.92rem;
-  font-family: inherit;
-  transition: background 0.15s ease, transform 0.15s ease;
-  box-shadow: 0 4px 14px rgba(88, 101, 242, 0.35);
-}
-
-.btn-discord-auth:hover {
-  background: #4752c4;
-  transform: translateY(-1px);
-}
-
-.auth-divider {
-  display: flex;
-  align-items: center;
-  text-align: center;
-  margin: 18px 0;
-  color: var(--text-muted);
-}
-
-.auth-divider::before,
-.auth-divider::after {
-  content: '';
-  flex: 1;
-  border-bottom: 1px solid var(--border);
-}
-
-.auth-divider span {
-  padding: 0 12px;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 1px;
-}
-
-.profile-username-handle {
-  font-size: 1rem;
-  color: var(--text-muted);
-  font-weight: 600;
-  vertical-align: middle;
 }

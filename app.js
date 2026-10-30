@@ -11,20 +11,9 @@ let pendingSubmissionsCache = [];
 let currentRejectSubmissionId = null;
 let profilesCache = {};
 
-// Auth Rate-Limiting & MFA State
-let loginLockoutInterval = null;
-let currentMfaFactorId = null;
-let currentPendingMfaUsername = null;
-let mfaFailedAttempts = 0;
-let currentEnrollingFactorId = null;
-
 // Helpers
 function isValidUsername(username) {
   return /^[a-zA-Z0-9_]{3,20}$/.test(username);
-}
-
-function usernameToEmail(username) {
-  return `${username.trim().toLowerCase()}@anl-player.com`;
 }
 
 function safeUrl(rawUrl) {
@@ -86,7 +75,7 @@ function calculatePointsForRecord(rank, percentage, minReq = 100) {
   return 0;
 }
 
-// Display Name Helper
+// Display Name Resolution Helper
 function getDisplayName(username, profile = null) {
   if (!username) return '';
   if (profile && profile.display_name && profile.display_name.trim()) {
@@ -117,72 +106,10 @@ async function fetchProfilesCache() {
   }
 }
 
-// Rate Limiting Helpers
-function isLoginLocked() {
-  const lockoutUntil = parseInt(localStorage.getItem("anl_login_lockout_until") || "0", 10);
-  return lockoutUntil > Date.now();
-}
-
-function applyLoginLockout(remainingSeconds, customMessage = null) {
-  const loginSubmitBtn = document.querySelector("#loginForm button[type='submit']");
-  const errorEl = document.getElementById("authError");
-  if (!loginSubmitBtn || !errorEl) return;
-
-  loginSubmitBtn.disabled = true;
-
-  if (loginLockoutInterval) clearInterval(loginLockoutInterval);
-
-  let secondsLeft = remainingSeconds;
-
-  const updateDisplay = () => {
-    loginSubmitBtn.textContent = `Locked (${secondsLeft}s)`;
-    if (customMessage) {
-      errorEl.textContent = `${customMessage} (${secondsLeft}s remaining)`;
-    } else {
-      errorEl.textContent = `⛔ Too many failed attempts. Please wait ${secondsLeft}s before trying again.`;
-    }
-  };
-
-  updateDisplay();
-
-  loginLockoutInterval = setInterval(() => {
-    secondsLeft--;
-    if (secondsLeft <= 0) {
-      clearInterval(loginLockoutInterval);
-      loginLockoutInterval = null;
-      localStorage.removeItem("anl_login_lockout_until");
-      localStorage.removeItem("anl_login_fail_count");
-      loginSubmitBtn.disabled = false;
-      loginSubmitBtn.textContent = "Sign In";
-      errorEl.textContent = "";
-    } else {
-      updateDisplay();
-    }
-  }, 1000);
-}
-
-function checkAndApplyLoginLockout() {
-  const lockoutUntil = parseInt(localStorage.getItem("anl_login_lockout_until") || "0", 10);
-  const now = Date.now();
-  if (lockoutUntil > now) {
-    const remainingSeconds = Math.ceil((lockoutUntil - now) / 1000);
-    applyLoginLockout(remainingSeconds);
-    return true;
-  }
-  return false;
-}
-
 // App Startup
 document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("discordLink").href = safeUrl(SETTINGS.discordUrl) || '#';
   document.getElementById("ytLink").href = safeUrl(SETTINGS.youtubeUrl) || '#';
-
-  // Listen for recovery links (Password Reset)
-  supabaseClient.auth.onAuthStateChange(async (event, session) => {
-    if (event === 'PASSWORD_RECOVERY') {
-      document.getElementById("resetPasswordModal")?.classList.add("active");
-    }
-  });
 
   setupNavigation();
   setupSearch();
@@ -276,46 +203,10 @@ function openPlayerProfile(playerName) {
   renderProfile();
 }
 
-// ==========================================
-// GLOBAL MFA CHALLENGE PROMPT
-// ==========================================
-async function promptMfaChallenge(usernameOrEmail) {
-  currentPendingMfaUsername = usernameOrEmail;
-  mfaFailedAttempts = 0;
-
-  const { data: factors, error: factorsErr } = await supabaseClient.auth.mfa.listFactors();
-  const totpFactor = factors?.totp?.find(f => f.status === 'verified');
-
-  if (factorsErr || !totpFactor) {
-    alert("MFA factor error. Please sign in again.");
-    await supabaseClient.auth.signOut();
-    return;
-  }
-
-  currentMfaFactorId = totpFactor.id;
-  const challengeInput = document.getElementById("mfaChallengeInput");
-  const challengeError = document.getElementById("mfaChallengeError");
-  if (challengeInput) challengeInput.value = "";
-  if (challengeError) challengeError.textContent = "";
-
-  const challengeModal = document.getElementById("mfaChallengeModal");
-  if (challengeModal) {
-    challengeModal.classList.add("active");
-    if (challengeInput) challengeInput.focus();
-  }
-}
-
 async function checkAuthSession() {
   const { data: { session } } = await supabaseClient.auth.getSession();
   if (session && session.user) {
     currentUser = session.user;
-
-    // Check MFA Assurance Level
-    const { data: aalData } = await supabaseClient.auth.mfa.getAuthenticatorAssuranceLevel();
-    if (aalData && aalData.nextLevel === 'aal2' && aalData.currentLevel !== 'aal2') {
-      await promptMfaChallenge(currentUser.user_metadata?.player_name || currentUser.email);
-      return;
-    }
 
     const { data: prof } = await supabaseClient
       .from('profiles')
@@ -323,7 +214,8 @@ async function checkAuthSession() {
       .eq('id', currentUser.id)
       .maybeSingle();
 
-    if (!prof && currentUser.app_metadata?.provider === 'discord') {
+    // First time login via Discord -> prompt to pick their GD name
+    if (!prof) {
       const suggestedName = currentUser.user_metadata?.custom_claims?.global_name 
                          || currentUser.user_metadata?.full_name 
                          || currentUser.user_metadata?.user_name 
@@ -334,34 +226,29 @@ async function checkAuthSession() {
       return;
     }
 
-    if (prof) {
-      currentProfile = prof;
-      isModerator = prof.is_mod === true;
+    currentProfile = prof;
+    isModerator = prof.is_mod === true;
 
-      // Emergency Lockdown Barrier
-      if (prof.is_locked) {
-        await supabaseClient.auth.signOut();
-        currentUser = null;
-        currentProfile = null;
-        isModerator = false;
-        alert(`🚨 EMERGENCY LOCKDOWN ACTIVE:\n\n${prof.locked_reason || 'This account has been locked due to security protocols.'}\n\nPlease contact the database administrator.`);
-        setLoggedOutState();
-        return;
-      }
-
-      if (prof.is_banned) {
-        const reason = prof.ban_reason || "Violation of Ascent Nation List rules.";
-        await supabaseClient.auth.signOut();
-        currentUser = null;
-        currentProfile = null;
-        isModerator = false;
-        alert(`⛔ YOUR ACCOUNT HAS BEEN BANNED:\n\nReason: "${reason}"\n\nIf you believe this is a false ban, appeal via our Discord.`);
-        setLoggedOutState();
-        return;
-      }
-    } else {
+    // Emergency Lockdown Barrier
+    if (prof.is_locked) {
+      await supabaseClient.auth.signOut();
+      currentUser = null;
       currentProfile = null;
       isModerator = false;
+      alert(`🚨 EMERGENCY LOCKDOWN ACTIVE:\n\n${prof.locked_reason || 'This account has been locked.'}\n\nPlease contact the administrator.`);
+      setLoggedOutState();
+      return;
+    }
+
+    if (prof.is_banned) {
+      const reason = prof.ban_reason || "Violation of Ascent Nation List rules.";
+      await supabaseClient.auth.signOut();
+      currentUser = null;
+      currentProfile = null;
+      isModerator = false;
+      alert(`⛔ YOUR ACCOUNT HAS BEEN BANNED:\n\nReason: "${reason}"\n\nIf you believe this is a false ban, appeal via our Discord.`);
+      setLoggedOutState();
+      return;
     }
 
     setLoggedInState();
@@ -371,10 +258,7 @@ async function checkAuthSession() {
 }
 
 function setLoggedInState() {
-  const rawPlayerName = currentProfile?.username 
-                     || currentUser.user_metadata?.player_name 
-                     || currentUser.email?.split('@')[0] 
-                     || "Player";
+  const rawPlayerName = currentProfile?.username || "Player";
   const displayGreeting = currentProfile?.display_name?.trim() || rawPlayerName;
 
   document.querySelectorAll(".mod-only").forEach(el => {
@@ -387,7 +271,7 @@ function setLoggedInState() {
   }
 
   const authBtn = document.getElementById("authBtn");
-  authBtn.textContent = `Logout (${displayGreeting})`;
+  authBtn.innerHTML = `Logout (${escapeHtml(displayGreeting)})`;
   authBtn.onclick = async () => {
     await supabaseClient.auth.signOut();
     location.reload();
@@ -413,10 +297,17 @@ function setLoggedOutState() {
   }
 
   const authBtn = document.getElementById("authBtn");
-  authBtn.textContent = "Sign In / Register";
-  authBtn.onclick = () => {
-    document.getElementById("authModal").classList.add("active");
-    checkAndApplyLoginLockout();
+  authBtn.innerHTML = `
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.929 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.894.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>
+    </svg>
+    Sign In with Discord
+  `;
+  authBtn.onclick = async () => {
+    await supabaseClient.auth.signInWithOAuth({
+      provider: 'discord',
+      options: { redirectTo: window.location.origin }
+    });
   };
 
   if (currentTab === "profile" && !activeProfilePlayer) {
@@ -437,10 +328,10 @@ function checkSubmissionRestrictions() {
 
   if (!currentUser) {
     noticeBox.style.display = "block";
-    noticeBox.style.background = "rgba(239, 68, 68, 0.15)";
-    noticeBox.style.border = "1px solid var(--danger)";
-    noticeBox.style.color = "var(--danger)";
-    noticeBox.innerHTML = `⚠️ You must be logged in to submit records. Please <a href="#" onclick="document.getElementById('authModal').classList.add('active');return false;" style="color:var(--accent);font-weight:bold;">Sign In</a>.`;
+    noticeBox.style.background = "rgba(88, 101, 242, 0.15)";
+    noticeBox.style.border = "1px solid #5865F2";
+    noticeBox.style.color = "#fff";
+    noticeBox.innerHTML = `💬 You must be signed in with Discord to submit records. Click the <strong>"Sign In with Discord"</strong> button in the top right.`;
     if (submitBtn) submitBtn.disabled = true;
     return;
   }
@@ -595,7 +486,6 @@ function calculateAllPlayerStats() {
         const isLevelVerifier = vNameClean && (pName.toLowerCase() === vNameClean.toLowerCase());
         const earnedPoints = calculatePointsForRecord(level.rank, pct, minReq);
 
-        // Only add base victor points if not already credited as the verifier
         if (!isLevelVerifier) {
           playerStats[pName].points += earnedPoints;
         }
@@ -660,10 +550,7 @@ async function renderProfile() {
   const allStats = calculateAllPlayerStats();
 
   let targetPlayerName = activeProfilePlayer;
-  const loggedInName = currentProfile?.username 
-                    || currentUser?.user_metadata?.player_name 
-                    || currentUser?.email?.split('@')[0] 
-                    || "";
+  const loggedInName = currentProfile?.username || "";
 
   const isViewingSelf = !!currentUser && (
     !activeProfilePlayer || (loggedInName && loggedInName.toLowerCase() === activeProfilePlayer.toLowerCase())
@@ -708,101 +595,7 @@ async function renderProfile() {
     banBadge.style.display = targetBanProfile?.is_banned ? "inline-block" : "none";
   }
 
-  // 1. Discord Connection Card & Unlink Protection
-  const discordCard = document.getElementById("discordLinkCard");
-  const discordStatus = document.getElementById("discordLinkStatus");
-  const linkDiscordBtn = document.getElementById("linkDiscordBtn");
-  const unlinkDiscordBtn = document.getElementById("unlinkDiscordBtn");
-
-  if (isViewingSelf && discordCard && currentUser) {
-    discordCard.style.display = "block";
-    const discordIdentity = currentUser.identities?.find(i => i.provider === 'discord');
-
-    if (discordIdentity) {
-      const dName = discordIdentity.identity_data?.custom_claims?.global_name || discordIdentity.identity_data?.user_name || "Connected";
-      discordStatus.innerHTML = `<span style="color: var(--success); font-weight:700;">✓ Connected:</span> Linked to Discord account (<strong>@${escapeHtml(dName)}</strong>).`;
-      linkDiscordBtn.style.display = "none";
-      unlinkDiscordBtn.style.display = "inline-block";
-
-      unlinkDiscordBtn.onclick = async () => {
-        const hasOtherIdentity = currentUser.identities && currentUser.identities.some(i => i.provider !== 'discord');
-
-        // If Discord is the ONLY login method -> Prompt to create password
-        if (!hasOtherIdentity) {
-          const username = currentProfile?.username || currentUser.user_metadata?.player_name || "";
-          document.getElementById("unlinkUsernameInput").value = username;
-          document.getElementById("unlinkPasswordInput").value = "";
-          document.getElementById("unlinkPasswordConfirmInput").value = "";
-          document.getElementById("unlinkPasswordError").textContent = "";
-          document.getElementById("unlinkPasswordModal").classList.add("active");
-          return;
-        }
-
-        // If user already has a password/email login method
-        if (!confirm("Are you sure you want to disconnect your Discord account?")) return;
-
-        const { error } = await supabaseClient.auth.unlinkIdentity(discordIdentity);
-        if (error) {
-          alert("Error unlinking: " + error.message);
-        } else {
-          alert("Discord unlinked successfully.");
-          location.reload();
-        }
-      };
-    } else {
-      discordStatus.innerHTML = `<span style="color: var(--text-muted);">Not Connected.</span> Link your Discord for fast 1-click login.`;
-      linkDiscordBtn.style.display = "inline-flex";
-      unlinkDiscordBtn.style.display = "none";
-      linkDiscordBtn.onclick = async () => {
-        await supabaseClient.auth.linkIdentity({
-          provider: 'discord',
-          options: { redirectTo: window.location.origin }
-        });
-      };
-    }
-  } else if (discordCard) {
-    discordCard.style.display = "none";
-  }
-
-  // 2FA Security Card Visibility in Profile
-  const mfaCard = document.getElementById("mfaSecurityCard");
-  const mfaStatusText = document.getElementById("mfaStatusText");
-  const openMfaBtn = document.getElementById("openMfaSetupBtn");
-  const disableMfaBtn = document.getElementById("disableMfaBtn");
-
-  if (isViewingSelf && mfaCard && currentUser) {
-    mfaCard.style.display = "block";
-    try {
-      const { data: factors } = await supabaseClient.auth.mfa.listFactors();
-      const verifiedTotp = factors?.totp?.find(f => f.status === 'verified');
-      if (verifiedTotp) {
-        mfaStatusText.innerHTML = `<span style="color: var(--success); font-weight:700;">✓ Active:</span> Account is protected with an Authenticator App.`;
-        if (openMfaBtn) openMfaBtn.style.display = "none";
-        if (disableMfaBtn) {
-          disableMfaBtn.style.display = "inline-block";
-          disableMfaBtn.onclick = async () => {
-            if (!confirm("Are you sure you want to remove Two-Factor Authentication?")) return;
-            const { error } = await supabaseClient.auth.mfa.unenroll({ factorId: verifiedTotp.id });
-            if (error) alert("Error disabling 2FA: " + error.message);
-            else {
-              alert("2FA has been disabled.");
-              renderProfile();
-            }
-          };
-        }
-      } else {
-        mfaStatusText.innerHTML = `<span style="color: var(--accent-gold); font-weight:700;">⚠️ Inactive:</span> Strongly recommended for moderators and the owner.`;
-        if (openMfaBtn) openMfaBtn.style.display = "inline-block";
-        if (disableMfaBtn) disableMfaBtn.style.display = "none";
-      }
-    } catch (_) {
-      mfaCard.style.display = "none";
-    }
-  } else if (mfaCard) {
-    mfaCard.style.display = "none";
-  }
-
-  // Display Name Card
+  // Display Name Settings Card
   const displayNameCard = document.getElementById("displayNameCard");
   if (isViewingSelf && displayNameCard) {
     displayNameCard.style.display = "block";
@@ -814,6 +607,7 @@ async function renderProfile() {
     displayNameCard.style.display = "none";
   }
 
+  // Bio Settings Card
   const bioEditCard = document.getElementById("bioEditCard");
   if (isViewingSelf) {
     bioEditCard.style.display = "block";
@@ -1500,7 +1294,7 @@ function setupForms() {
       const submitBtn = document.getElementById("submitRecordBtn");
 
       if (!currentUser) {
-        alert("Please sign in or register to submit a record.");
+        alert("Please sign in with Discord to submit a record.");
         return;
       }
 
@@ -1530,9 +1324,7 @@ function setupForms() {
         return;
       }
 
-      const playerName = currentProfile?.username 
-                      || currentUser.user_metadata?.player_name 
-                      || currentUser.email.split('@')[0];
+      const playerName = currentProfile?.username || "Player";
 
       let payload = {
         user_id: currentUser.id,
@@ -2092,330 +1884,8 @@ function setupSearch() {
   input?.addEventListener("input", () => renderList());
 }
 
-// Auth & Multi-Factor Authentication (MFA / TOTP)
+// Discord Authentication & Onboarding
 function setupAuth() {
-  const modal = document.getElementById("authModal");
-  const closeBtn = document.getElementById("closeAuthModal");
-  const tabLoginBtn = document.getElementById("tabLoginBtn");
-  const tabSignupBtn = document.getElementById("tabSignupBtn");
-  const loginForm = document.getElementById("loginForm");
-  const signupForm = document.getElementById("signupForm");
-  const errorEl = document.getElementById("authError");
-
-  closeBtn.onclick = () => modal.classList.remove("active");
-
-  tabLoginBtn.onclick = () => {
-    tabLoginBtn.classList.add("active");
-    tabSignupBtn.classList.remove("active");
-    loginForm.style.display = "block";
-    signupForm.style.display = "none";
-    errorEl.textContent = "";
-    checkAndApplyLoginLockout();
-  };
-
-  tabSignupBtn.onclick = () => {
-    tabSignupBtn.classList.add("active");
-    tabLoginBtn.classList.remove("active");
-    loginForm.style.display = "none";
-    signupForm.style.display = "block";
-    errorEl.textContent = "";
-  };
-
-  // Sign In Submission
-  loginForm.addEventListener("submit", async (e) => {
-    e.preventDefault();
-
-    if (checkAndApplyLoginLockout()) return;
-
-    const loginSubmitBtn = loginForm.querySelector("button[type='submit']");
-    const identifier = document.getElementById("loginUsername").value.trim();
-    const password = document.getElementById("loginPassword").value;
-    let emailToUse = '';
-    const { data: resolvedEmail } = await supabaseClient.rpc('resolve_login_email', { identifier });
-    emailToUse = resolvedEmail || (identifier.includes("@") ? identifier.toLowerCase() : usernameToEmail(identifier));
-
-    loginSubmitBtn.disabled = true;
-    loginSubmitBtn.textContent = "Signing in...";
-    errorEl.textContent = "";
-
-    try {
-      const { data, error } = await supabaseClient.auth.signInWithPassword({
-        email: emailToUse,
-        password: password
-      });
-
-      if (error) {
-        const isRateLimited = error.status === 429 
-          || error.statusCode === 429
-          || error.code === 'over_request_rate_limit'
-          || error.code === 'too_many_requests'
-          || String(error.message).toLowerCase().includes("rate limit")
-          || String(error.message).toLowerCase().includes("too many requests");
-
-        if (isRateLimited) {
-          const lockoutDuration = 60;
-          localStorage.setItem("anl_login_lockout_until", (Date.now() + lockoutDuration * 1000).toString());
-          applyLoginLockout(lockoutDuration, "⛔ Server rate limit reached. Please wait");
-          return;
-        }
-
-        let failCount = parseInt(localStorage.getItem("anl_login_fail_count") || "0", 10) + 1;
-
-        if (failCount >= 5) {
-          const lockoutDuration = 60;
-          localStorage.setItem("anl_login_lockout_until", (Date.now() + lockoutDuration * 1000).toString());
-          localStorage.removeItem("anl_login_fail_count");
-          applyLoginLockout(lockoutDuration);
-        } else {
-          localStorage.setItem("anl_login_fail_count", failCount.toString());
-          const remaining = 5 - failCount;
-          errorEl.textContent = `Invalid username or password. (${remaining} attempt${remaining === 1 ? '' : 's'} remaining before 60s cooldown)`;
-          loginSubmitBtn.disabled = false;
-          loginSubmitBtn.textContent = "Sign In";
-        }
-        return;
-      }
-
-      // Check if MFA is required on this account (AAL2)
-      const { data: aalData } = await supabaseClient.auth.mfa.getAuthenticatorAssuranceLevel();
-      if (aalData && aalData.nextLevel === 'aal2' && aalData.currentLevel !== 'aal2') {
-        modal.classList.remove("active");
-        await promptMfaChallenge(identifier);
-        return;
-      }
-
-      localStorage.removeItem("anl_login_fail_count");
-      localStorage.removeItem("anl_login_lockout_until");
-      modal.classList.remove("active");
-      await checkAuthSession();
-      await refreshQueueState();
-      renderList();
-    } catch (err) {
-      console.error("Login unexpected error:", err);
-      errorEl.textContent = "An error occurred while signing in. Please try again.";
-      loginSubmitBtn.disabled = false;
-      loginSubmitBtn.textContent = "Sign In";
-    } finally {
-      const isLocked = parseInt(localStorage.getItem("anl_login_lockout_until") || "0", 10) > Date.now();
-      if (!isLocked && loginSubmitBtn.disabled) {
-        loginSubmitBtn.disabled = false;
-        loginSubmitBtn.textContent = "Sign In";
-      }
-    }
-  });
-
-  // Sign Up Submission
-  signupForm.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const signupBtn = signupForm.querySelector("button[type='submit']");
-    const username = document.getElementById("signupUsername").value.trim();
-    const password = document.getElementById("signupPassword").value;
-
-    if (!isValidUsername(username)) {
-      errorEl.textContent = "Username must be 3-20 characters long (letters, numbers, underscores).";
-      return;
-    }
-
-    const pseudoEmail = usernameToEmail(username);
-    signupBtn.disabled = true;
-    errorEl.textContent = "Creating account...";
-
-    try {
-      const { data, error } = await supabaseClient.auth.signUp({
-        email: pseudoEmail,
-        password: password,
-        options: { data: { player_name: username } }
-      });
-
-      if (error) {
-        errorEl.textContent = error.message;
-        return;
-      }
-
-      if (data.session) {
-        modal.classList.remove("active");
-        await checkAuthSession();
-        await refreshQueueState();
-        renderList();
-        alert(`Welcome to ANL, ${username}!`);
-      } else {
-        errorEl.textContent = "Registered! You can now log in.";
-        tabLoginBtn.click();
-      }
-    } finally {
-      signupBtn.disabled = false;
-    }
-  });
-
-  // MFA Challenge Verify Form
-  document.getElementById("mfaChallengeForm")?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const code = document.getElementById("mfaChallengeInput").value.trim();
-    const errorEl = document.getElementById("mfaChallengeError");
-    const verifyBtn = document.getElementById("mfaVerifyBtn");
-
-    verifyBtn.disabled = true;
-    errorEl.textContent = "Authenticating...";
-
-    const { error } = await supabaseClient.auth.mfa.challengeAndVerify({
-      factorId: currentMfaFactorId,
-      code: code
-    });
-
-    verifyBtn.disabled = false;
-
-    if (error) {
-      mfaFailedAttempts++;
-      const isOwner = currentPendingMfaUsername && currentPendingMfaUsername.toLowerCase().includes("ascent");
-
-      if (mfaFailedAttempts >= 3) {
-        if (isOwner) {
-          await supabaseClient.rpc('trigger_emergency_lockdown', {
-            target_username: 'Ascent',
-            reason: '3 consecutive failed 2FA verification attempts.'
-          });
-        }
-        await supabaseClient.auth.signOut();
-        document.getElementById("mfaChallengeModal")?.classList.remove("active");
-        alert("🚨 ACCESS DENIED: 3 failed 2FA attempts. Session terminated and emergency lockdown engaged.");
-        location.reload();
-        return;
-      }
-
-      errorEl.textContent = `Invalid 2FA code (${3 - mfaFailedAttempts} attempts remaining).`;
-      return;
-    }
-
-    document.getElementById("mfaChallengeModal")?.classList.remove("active");
-    localStorage.removeItem("anl_login_fail_count");
-    localStorage.removeItem("anl_login_lockout_until");
-    await checkAuthSession();
-    await refreshQueueState();
-    renderList();
-  });
-
-  document.getElementById("mfaAbortBtn")?.addEventListener("click", async () => {
-    await supabaseClient.auth.signOut();
-    document.getElementById("mfaChallengeModal")?.classList.remove("active");
-    location.reload();
-  });
-
-  // Setup 2FA Button in Profile
-  document.getElementById("openMfaSetupBtn")?.addEventListener("click", async () => {
-    const enrollModal = document.getElementById("mfaEnrollModal");
-    const qrContainer = document.getElementById("mfaQrContainer");
-    const secretText = document.getElementById("mfaSecretText");
-    const errorEl = document.getElementById("mfaEnrollError");
-
-    if (errorEl) errorEl.textContent = "";
-    if (qrContainer) qrContainer.innerHTML = `<div class="loading">Generating QR code...</div>`;
-    if (enrollModal) enrollModal.classList.add("active");
-
-    try {
-      const { data: existingFactors } = await supabaseClient.auth.mfa.listFactors();
-      if (existingFactors?.totp?.length > 0) {
-        for (const factor of existingFactors.totp) {
-          if (factor.status === 'unverified') {
-            await supabaseClient.auth.mfa.unenroll({ factorId: factor.id });
-          }
-        }
-      }
-
-      const { data, error } = await supabaseClient.auth.mfa.enroll({
-        factorType: 'totp',
-        issuer: 'Ascent Nation List',
-        friendlyName: currentUser?.email || 'Ascent'
-      });
-
-      if (error) {
-        if (errorEl) errorEl.textContent = "Error enrolling MFA: " + error.message;
-        return;
-      }
-
-      currentEnrollingFactorId = data.id;
-      if (secretText) secretText.textContent = data.totp.secret;
-
-      if (qrContainer) {
-        const rawQr = data.totp.qr_code;
-        let svgString = '';
-
-        if (rawQr && rawQr.includes('<svg')) {
-          svgString = rawQr.slice(rawQr.indexOf('<svg'));
-        }
-
-        if (svgString) {
-          const parser = new DOMParser();
-          const doc = parser.parseFromString(svgString, 'image/svg+xml');
-          const svgEl = doc.querySelector('svg');
-
-          if (svgEl) {
-            const width = svgEl.getAttribute('width') || '256';
-            const height = svgEl.getAttribute('height') || '256';
-            if (!svgEl.getAttribute('viewBox')) {
-              svgEl.setAttribute('viewBox', `0 0 ${width} ${height}`);
-            }
-            svgEl.removeAttribute('width');
-            svgEl.removeAttribute('height');
-
-            qrContainer.innerHTML = '';
-            const whiteCard = document.createElement('div');
-            whiteCard.className = 'mfa-qr-card';
-            whiteCard.appendChild(svgEl);
-            qrContainer.appendChild(whiteCard);
-          }
-        }
-      }
-
-    } catch (err) {
-      if (errorEl) errorEl.textContent = "Setup error: " + err.message;
-    }
-  });
-
-  document.getElementById("closeMfaEnrollModal")?.addEventListener("click", async () => {
-    document.getElementById("mfaEnrollModal")?.classList.remove("active");
-    if (currentEnrollingFactorId) {
-      try {
-        await supabaseClient.auth.mfa.unenroll({ factorId: currentEnrollingFactorId });
-        currentEnrollingFactorId = null;
-      } catch (_) {}
-    }
-  });
-
-  document.getElementById("mfaEnrollForm")?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const code = document.getElementById("mfaEnrollCodeInput").value.trim();
-    const errorEl = document.getElementById("mfaEnrollError");
-    const submitBtn = document.getElementById("mfaEnrollSubmitBtn");
-
-    submitBtn.disabled = true;
-    errorEl.textContent = "Verifying code...";
-
-    const { error } = await supabaseClient.auth.mfa.challengeAndVerify({
-      factorId: currentEnrollingFactorId,
-      code: code
-    });
-
-    submitBtn.disabled = false;
-
-    if (error) {
-      errorEl.textContent = "Invalid code. Please try again: " + error.message;
-      return;
-    }
-
-    alert("🎉 Two-Factor Authentication successfully activated!");
-    document.getElementById("mfaEnrollModal")?.classList.remove("active");
-    renderProfile();
-  });
-
-  // Discord 1-Click Login
-  document.getElementById("discordOAuthBtn")?.addEventListener("click", async () => {
-    const { error } = await supabaseClient.auth.signInWithOAuth({
-      provider: 'discord',
-      options: { redirectTo: window.location.origin }
-    });
-    if (error) alert("Discord sign-in failed: " + error.message);
-  });
-
   // First-Time Discord Profile Setup Form
   document.getElementById("firstTimeDiscordForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -2430,146 +1900,17 @@ function setupAuth() {
     const { error } = await supabaseClient.from('profiles').insert([{
       id: currentUser.id,
       username: playerName,
-      bio: "Demonlist player",
+      display_name: playerName,
+      bio: "Ascent Nation list player",
       is_mod: false
     }]);
 
     if (error) {
-      errorEl.textContent = "Name already taken or database error: " + error.message;
+      errorEl.textContent = "Name already taken by another player. Please pick another: " + error.message;
       return;
     }
 
     document.getElementById("firstTimeDiscordModal").classList.remove("active");
     location.reload();
-  });
-
-  // Unlink Discord by Setting Account Password via Database RPC
-  document.getElementById("closeUnlinkPasswordModal")?.addEventListener("click", () => {
-    document.getElementById("unlinkPasswordModal").classList.remove("active");
-  });
-
-  document.getElementById("unlinkPasswordForm")?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const password = document.getElementById("unlinkPasswordInput").value;
-    const confirmPassword = document.getElementById("unlinkPasswordConfirmInput").value;
-    const errorEl = document.getElementById("unlinkPasswordError");
-    const submitBtn = document.getElementById("unlinkPasswordSubmitBtn");
-
-    if (password.length < 8) {
-      errorEl.textContent = "Password must be at least 8 characters.";
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      errorEl.textContent = "Passwords do not match.";
-      return;
-    }
-
-    submitBtn.disabled = true;
-    submitBtn.textContent = "Setting credentials & unlinking Discord...";
-    errorEl.textContent = "";
-
-    try {
-      const username = currentProfile?.username || currentUser.user_metadata?.player_name || "";
-      const anlEmail = usernameToEmail(username);
-
-      // 1. Run the database function to swap Discord for an @anl-player.com email identity
-      const { data, error: rpcErr } = await supabaseClient.rpc('unlink_discord_and_set_password', {
-        new_password: password
-      });
-
-      if (rpcErr) {
-        errorEl.textContent = "Failed to unlink: " + rpcErr.message;
-        submitBtn.disabled = false;
-        submitBtn.textContent = "Set Password & Disconnect Discord";
-        return;
-      }
-
-      // 2. Sign in with the newly minted credentials
-      await supabaseClient.auth.signOut();
-      const { error: loginErr } = await supabaseClient.auth.signInWithPassword({
-        email: anlEmail,
-        password: password
-      });
-
-      if (loginErr) {
-        alert(`Discord successfully disconnected!\n\nPlease log in using your username (${username}) and password.`);
-      } else {
-        alert(`🎉 Discord disconnected successfully!\n\nYour account has been switched to username/password login:\n• Username: ${username}\n• Login Email: ${anlEmail}\n\nYou are now signed in.`);
-      }
-
-      document.getElementById("unlinkPasswordModal").classList.remove("active");
-      location.reload();
-    } catch (err) {
-      errorEl.textContent = "Unexpected error: " + err.message;
-    } finally {
-      submitBtn.disabled = false;
-      submitBtn.textContent = "Set Password & Disconnect Discord";
-    }
-  });
-
-  // Forgot Password Modal Open & Submit
-  document.getElementById("openForgotPasswordBtn")?.addEventListener("click", (e) => {
-    e.preventDefault();
-    document.getElementById("authModal").classList.remove("active");
-    document.getElementById("forgotPasswordModal").classList.add("active");
-  });
-
-  document.getElementById("closeForgotPasswordModal")?.addEventListener("click", () => {
-    document.getElementById("forgotPasswordModal").classList.remove("active");
-  });
-
-  document.getElementById("forgotPasswordForm")?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const identifier = document.getElementById("forgotIdentifier").value.trim();
-    const errorEl = document.getElementById("forgotPasswordError");
-    const submitBtn = document.getElementById("sendResetLinkBtn");
-
-    submitBtn.disabled = true;
-    errorEl.textContent = "Resolving account...";
-
-    try {
-      const { data: targetEmail, error: rpcErr } = await supabaseClient.rpc('resolve_login_email', { identifier });
-
-      if (rpcErr || !targetEmail) {
-        errorEl.textContent = "Account not found.";
-        return;
-      }
-
-      if (targetEmail.endsWith("@anl-player.com")) {
-        errorEl.textContent = "⚠️ This account has no recovery email linked. Please open a recovery ticket in Discord.";
-        return;
-      }
-
-      const { error: resetErr } = await supabaseClient.auth.resetPasswordForEmail(targetEmail, {
-        redirectTo: window.location.origin
-      });
-
-      if (resetErr) {
-        errorEl.textContent = "Error sending reset email: " + resetErr.message;
-      } else {
-        alert(`Reset link sent to ${targetEmail}! Please check your inbox.`);
-        document.getElementById("forgotPasswordModal").classList.remove("active");
-      }
-    } finally {
-      submitBtn.disabled = false;
-    }
-  });
-
-  // Set New Password Form
-  document.getElementById("setNewPasswordForm")?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const newPassword = document.getElementById("newPasswordInput").value;
-    const errorEl = document.getElementById("setNewPasswordError");
-
-    const { error } = await supabaseClient.auth.updateUser({ password: newPassword });
-
-    if (error) {
-      errorEl.textContent = "Failed to update password: " + error.message;
-    } else {
-      alert("Password updated successfully! You are now logged in.");
-      document.getElementById("resetPasswordModal").classList.remove("active");
-      location.reload();
-    }
   });
 }
