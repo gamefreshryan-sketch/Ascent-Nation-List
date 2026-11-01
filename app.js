@@ -501,8 +501,35 @@ function populateDropdowns() {
     <option value="${escapeHtml(lvl.id)}">#${lvl.rank} - ${escapeHtml(lvl.name)} [ID: ${escapeHtml(lvl.gd_id || 'N/A')}]</option>
   `).join("");
 
-  const subSelect = document.getElementById("subLevelSelect");
-  if (subSelect) subSelect.innerHTML = optionsHtml;
+  // Live warning when selecting a level in the submission dropdown
+  const subLevelSelect = document.getElementById("subLevelSelect");
+  if (subLevelSelect) {
+    subLevelSelect.addEventListener("change", () => {
+      const selectedId = subLevelSelect.value;
+      const lvl = currentLevels.find(l => l.id == selectedId);
+      const noticeBox = document.getElementById("submitNoticeBox");
+      const submitBtn = document.getElementById("submitRecordBtn");
+
+      if (lvl && lvl.verifier && currentProfile) {
+        const verifierName = lvl.verifier.trim().toLowerCase();
+        const myUser = (currentProfile.username || '').trim().toLowerCase();
+        const myDisplay = (currentProfile.display_name || '').trim().toLowerCase();
+
+        if (myUser === verifierName || (myDisplay && myDisplay === verifierName)) {
+          noticeBox.style.display = "block";
+          noticeBox.style.background = "rgba(239, 68, 68, 0.15)";
+          noticeBox.style.border = "1px solid var(--danger)";
+          noticeBox.style.color = "var(--danger)";
+          noticeBox.innerHTML = `⚠️ <strong>Notice:</strong> You are the official verifier of <strong>${escapeHtml(lvl.name)}</strong>. You already receive placement points & verifier bonus and cannot submit a completion on this level.`;
+          if (submitBtn) submitBtn.disabled = true;
+          return;
+        }
+      }
+
+      // Re-check regular limits if not the verifier
+      checkSubmissionRestrictions();
+    });
+  }
 
   const adminSelect = document.getElementById("victorLevelSelect");
   if (adminSelect) adminSelect.innerHTML = optionsHtml;
@@ -1261,13 +1288,32 @@ function setupForms() {
   const compGroup = document.getElementById("fieldGroupCompletion");
   const openGroup = document.getElementById("fieldGroupOpen");
   const veriGroup = document.getElementById("fieldGroupVerification");
+  const typeCards = document.querySelectorAll(".sub-type-card");
+
+  function syncActiveCard() {
+    if (!subTypeSelect) return;
+    const currentVal = subTypeSelect.value;
+    typeCards.forEach(card => {
+      const isSelected = card.dataset.type === currentVal;
+      card.classList.toggle("active", isSelected);
+      card.setAttribute("aria-checked", isSelected ? "true" : "false");
+    });
+  }
+
+  // Click handler for 4 big buttons
+  typeCards.forEach(card => {
+    card.addEventListener("click", () => {
+      if (!subTypeSelect) return;
+      subTypeSelect.value = card.dataset.type;
+      subTypeSelect.dispatchEvent(new Event("change"));
+    });
+  });
 
   if (subTypeSelect) {
     subTypeSelect.addEventListener("change", () => {
       const val = subTypeSelect.value;
       compGroup.style.display = val === "completion" ? "block" : "none";
       openGroup.style.display = val === "open_run" ? "block" : "none";
-      // Show level info fields for both full verification and open proposals:
       veriGroup.style.display = (val === "verification" || val === "propose_open") ? "block" : "none";
 
       const isLevelInfoNeeded = (val === "verification" || val === "propose_open");
@@ -1279,7 +1325,11 @@ function setupForms() {
       if (val === "open_run") {
         updateOpenWrBanner();
       }
+
+      syncActiveCard();
     });
+
+    syncActiveCard(); // Initial card sync on load
   }
 
   document.getElementById("subOpenSelect")?.addEventListener("change", updateOpenWrBanner);
@@ -1403,6 +1453,18 @@ function setupForms() {
         payload.percentage = parseInt(document.getElementById("subPercentage").value, 10);
         const selectedLvl = currentLevels.find(l => l.id == payload.level_id);
         payload.gd_id = selectedLvl ? selectedLvl.gd_id : '';
+
+        // 🛑 PREVENT VERIFIERS FROM SUBMITTING ON THEIR OWN LEVEL
+        if (selectedLvl && selectedLvl.verifier) {
+          const verifierName = selectedLvl.verifier.trim().toLowerCase();
+          const currentUsername = (currentProfile?.username || '').trim().toLowerCase();
+          const currentDisplayName = (currentProfile?.display_name || '').trim().toLowerCase();
+
+          if (currentUsername === verifierName || (currentDisplayName && currentDisplayName === verifierName)) {
+            alert(`⛔ Submission Denied:\nYou are the official verifier of "${selectedLvl.name}". Verifiers already receive verifier bonus points and cannot submit completion records on their own level.`);
+            return;
+          }
+        }
       }
 
       // 3. Right after this block, the code continues with:
@@ -1665,6 +1727,14 @@ function setupForms() {
 
     const levelId = document.getElementById("victorLevelSelect").value;
     const playerName = document.getElementById("victorPlayerName").value.trim();
+
+    // 🛑 BLOCK DIRECT RECORD IF PLAYER IS THE VERIFIER
+    const targetLvl = currentLevels.find(l => l.id == levelId);
+    if (targetLvl && targetLvl.verifier && playerName.toLowerCase() === targetLvl.verifier.trim().toLowerCase()) {
+      alert(`Error: "${playerName}" is the verifier of ${targetLvl.name}. Verifiers cannot be added as separate victors on their own levels.`);
+      return;
+    }
+    
     const percentage = parseInt(document.getElementById("victorPercentage").value, 10) || 100;
     const validatedProof = safeUrl(document.getElementById("victorProofUrl").value.trim());
     const device = document.getElementById("victorDevice").value.trim();
@@ -1800,6 +1870,15 @@ async function approveSubmission(subId) {
   // Case 3: Normal completion on list level
   const level = currentLevels.find(l => l.id == sub.level_id);
   const levelTitle = level ? `#${level.rank} - ${level.name}` : `Level #${sub.level_id}`;
+
+  // 🛑 BLOCK APPROVAL IF PLAYER IS THE LEVEL'S VERIFIER
+  if (level && level.verifier) {
+    const isVerifier = sub.player_name.trim().toLowerCase() === level.verifier.trim().toLowerCase();
+    if (isVerifier) {
+      alert(`⚠️ Action Blocked:\n${sub.player_name} is already the official verifier of "${level.name}". Verifiers cannot hold separate victor records on their own levels.`);
+      return;
+    }
+  }
 
   if (!confirm(`Approve record for ${sub.player_name} on ${levelTitle}?`)) return;
 

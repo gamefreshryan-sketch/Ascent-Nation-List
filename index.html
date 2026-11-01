@@ -294,23 +294,103 @@
 
     <!-- VIEW: SUBMIT RECORD -->
     <section id="submitView" class="tab-content">
-      <div class="rules-card" style="max-width: 680px; margin: 0 auto;">
+      <div class="rules-card" style="max-width: 840px; margin: 0 auto;">
         <h2>Submit to Ascent Nation List</h2>
-        <p class="text-muted" style="margin-bottom: 16px;">
+        <p class="text-muted" style="margin-bottom: 18px;">
           Submissions are reviewed by our staff team. Each user may have at most <strong>3 pending submissions</strong> simultaneously.
         </p>
 
         <div id="submitNoticeBox" style="display: none; padding: 12px; border-radius: var(--radius-sm); margin-bottom: 16px;"></div>
 
+        <!-- Hidden select kept for 100% JavaScript backward compatibility -->
         <form id="recordSubmissionForm">
-          <div class="form-group">
-            <label for="subType">Submission Type</label>
-            <select id="subType" required>
-              <option value="completion">Completion / Progress (Level already on List)</option>
-              <option value="open_run">Open Verification Run (Progress > WR or 100% Verification)</option>
-              <option value="propose_open">Propose New Level for Open Verification (Needs Verifier)</option>
-              <option value="verification">Submit Own Verified Level (100% Legit)</option>
-            </select>
+          <select id="subType" required style="display: none;">
+            <option value="completion" selected>Completion / Progress (Level already on List)</option>
+            <option value="open_run">Open Verification Run (Progress > WR or 100% Verification)</option>
+            <option value="propose_open">Propose New Level for Open Verification (Needs Verifier)</option>
+            <option value="verification">Submit Own Verified Level (100% Legit)</option>
+          </select>
+
+          <!-- STEP 1: 4 BIG SUBMISSION TYPE BUTTONS -->
+          <div class="sub-step-label">
+            <span>STEP 1</span> Select What You Are Submitting
+          </div>
+
+          <div class="sub-type-grid" role="radiogroup" aria-label="Submission Type Options">
+            
+            <!-- OPTION 1: Completion on List -->
+            <button type="button" class="sub-type-card card-blue active" data-type="completion" role="radio" aria-checked="true">
+              <div class="sub-type-top">
+                <span class="sub-type-icon">🏆</span>
+                <span class="sub-type-badge badge-blue">Existing List Level</span>
+              </div>
+              <div class="sub-type-title">List Record</div>
+              <div class="sub-type-sub">Completion or Progress</div>
+              <p class="sub-type-desc">
+                For levels <strong>already on the ANL</strong> (Main or Extended). Submit a 100% victory or progress meeting the level requirement.
+              </p>
+              <div class="sub-type-footer">
+                <span>Requires: Video Proof • Clicks</span>
+                <span class="sub-type-check">✓ Selected</span>
+              </div>
+            </button>
+
+            <!-- OPTION 2: Open Verification Run -->
+            <button type="button" class="sub-type-card card-gold" data-type="open_run" role="radio" aria-checked="false">
+              <div class="sub-type-top">
+                <span class="sub-type-icon">🔓</span>
+                <span class="sub-type-badge badge-gold">Open Space</span>
+              </div>
+              <div class="sub-type-title">Open Level Run</div>
+              <div class="sub-type-sub">World Record or Verification</div>
+              <p class="sub-type-desc">
+                For levels in the <strong>Open Verification Space</strong>. Must beat the current World Record progress, or reach 100% to verify it!
+              </p>
+              <div class="sub-type-footer">
+                <span>Requires: &gt; WR or 100%</span>
+                <span class="sub-type-check">✓ Selected</span>
+              </div>
+            </button>
+
+            <!-- OPTION 3: Propose Open Level -->
+            <button type="button" class="sub-type-card card-purple" data-type="propose_open" role="radio" aria-checked="false">
+              <div class="sub-type-top">
+                <span class="sub-type-icon">💡</span>
+                <span class="sub-type-badge badge-purple">Community Help</span>
+              </div>
+              <div class="sub-type-title">Propose Open Level</div>
+              <div class="sub-type-sub">Needs a Community Verifier</div>
+              <p class="sub-type-desc">
+                You created an unverified level and want it added to the <strong>Open Verification Space</strong> so others can race to verify it.
+              </p>
+              <div class="sub-type-footer">
+                <span>Requires: GD Level ID • Showcase</span>
+                <span class="sub-type-check">✓ Selected</span>
+              </div>
+            </button>
+
+            <!-- OPTION 4: Submit Verified Level -->
+            <button type="button" class="sub-type-card card-green" data-type="verification" role="radio" aria-checked="false">
+              <div class="sub-type-top">
+                <span class="sub-type-icon">⭐</span>
+                <span class="sub-type-badge badge-green">Direct Placement</span>
+              </div>
+              <div class="sub-type-title">Submit Verified Level</div>
+              <div class="sub-type-sub">100% Beaten & Verified by You</div>
+              <p class="sub-type-desc">
+                Submit a new, unlisted level you <strong>personally completed 100% legit</strong> to be reviewed and placed directly onto the list.
+              </p>
+              <div class="sub-type-footer">
+                <span>Requires: 100% Completion • Proof</span>
+                <span class="sub-type-check">✓ Selected</span>
+              </div>
+            </button>
+
+          </div>
+
+          <!-- STEP 2: DYNAMIC DETAILS FORM -->
+          <div class="sub-step-label">
+            <span>STEP 2</span> Provide Record Details
           </div>
 
           <!-- FIELD SET: COMPLETION / PROGRESS ON LIST -->
@@ -411,7 +491,7 @@
             <textarea id="subNotes" rows="2" placeholder="e.g. First wave starts at 0:34..." maxlength="300"></textarea>
           </div>
 
-          <button type="submit" id="submitRecordBtn" class="submit-btn" style="margin-top: 8px;">
+          <button type="submit" id="submitRecordBtn" class="submit-btn" style="margin-top: 10px;">
             Send Submission to Queue
           </button>
         </form>

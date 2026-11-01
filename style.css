@@ -1894,3 +1894,162 @@ input:focus, select:focus, textarea:focus {
   margin-bottom: 20px;
   box-shadow: 0 4px 14px rgba(0,0,0,0.3);
 }
+
+/* ==========================================================================
+   SUBMISSION TYPE 4-CARD SELECTOR GRID
+   ========================================================================== */
+.sub-step-label {
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sub-step-label span {
+  background: var(--border);
+  color: var(--text-main);
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+}
+
+.sub-type-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 680px) {
+  .sub-type-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.sub-type-card {
+  background: var(--bg-card);
+  border: 2px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  font-family: inherit;
+  color: var(--text-main);
+  outline: none;
+}
+
+.sub-type-card:hover {
+  background: var(--bg-hover);
+  border-color: rgba(56, 189, 248, 0.4);
+  transform: translateY(-2px);
+}
+
+/* Card Themes */
+.sub-type-card.active.card-blue {
+  border-color: var(--accent);
+  background: rgba(56, 189, 248, 0.08);
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.22);
+}
+
+.sub-type-card.active.card-gold {
+  border-color: var(--accent-gold);
+  background: rgba(245, 158, 11, 0.08);
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.22);
+}
+
+.sub-type-card.active.card-purple {
+  border-color: #a855f7;
+  background: rgba(168, 85, 247, 0.08);
+  box-shadow: 0 0 16px rgba(168, 85, 247, 0.22);
+}
+
+.sub-type-card.active.card-green {
+  border-color: var(--success);
+  background: rgba(16, 185, 129, 0.08);
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.22);
+}
+
+.sub-type-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.sub-type-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.sub-type-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.badge-blue { background: rgba(56, 189, 248, 0.15); color: var(--accent); }
+.badge-gold { background: rgba(245, 158, 11, 0.15); color: var(--accent-gold); }
+.badge-purple { background: rgba(168, 85, 247, 0.15); color: #c084fc; }
+.badge-green { background: rgba(16, 185, 129, 0.15); color: var(--success); }
+
+.sub-type-title {
+  font-family: var(--font-heading);
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-top: 2px;
+}
+
+.sub-type-sub {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.sub-type-desc {
+  font-size: 0.84rem;
+  color: #cbd5e1;
+  line-height: 1.45;
+  flex: 1;
+  margin: 4px 0 6px 0;
+}
+
+.sub-type-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.sub-type-check {
+  font-weight: 700;
+  font-size: 0.75rem;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.sub-type-card.active .sub-type-check {
+  opacity: 1;
+}
+
+.sub-type-card.active.card-blue .sub-type-check { color: var(--accent); }
+.sub-type-card.active.card-gold .sub-type-check { color: var(--accent-gold); }
+.sub-type-card.active.card-purple .sub-type-check { color: #c084fc; }
+.sub-type-card.active.card-green .sub-type-check { color: var(--success); }
