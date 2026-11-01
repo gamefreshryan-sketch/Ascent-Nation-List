@@ -1735,6 +1735,37 @@ async function approveSubmission(subId) {
 
   const modName = currentProfile?.username || "Moderator";
 
+  // Handle Proposal for Open Verification
+  if (sub.type === "propose_open") {
+    if (!confirm(`Approve "${sub.level_name}" and publish to Open Verification?`)) return;
+
+    const { error: insErr } = await supabaseClient.from('open_levels').insert([{
+      name: sub.level_name,
+      creator: sub.creator,
+      gd_id: sub.gd_id,
+      approx_rank: sub.approx_rank || 'Unassigned',
+      length: sub.level_length || '1:00',
+      video_url: sub.proof_url,
+      description: sub.level_description || ''
+    }]);
+
+    if (insErr) {
+      alert("Error adding to open levels: " + insErr.message);
+      return;
+    }
+
+    await supabaseClient
+      .from('submissions')
+      .update({ status: 'accepted', reviewed_by: modName, reviewed_at: new Date().toISOString() })
+      .eq('id', sub.id);
+
+    await logModeratorAction("APPROVE_OPEN_PROPOSAL", sub.level_name, `Approved open level [GD ID: ${sub.gd_id}]`);
+    alert(`"${sub.level_name}" is now live in Open Verification!`);
+    await fetchOpenLevelsFromDB();
+    await refreshQueueState();
+    return;
+  }
+
   // Case 1: Open verification progress run (< 100%)
   if (sub.type === "open_run" && sub.percentage < 100 && sub.open_level_id) {
     if (!confirm(`Approve new World Record (${sub.percentage}%) for ${sub.player_name} on open level?`)) return;
@@ -1869,8 +1900,11 @@ function renderQueue() {
     let levelTitle = "";
     let isOpenRun = sub.type === "open_run";
     let isNewVerification = sub.type === "verification";
+    let isOpenProposal = sub.type === "propose_open";
 
-    if (isOpenRun) {
+    if (isOpenProposal) {
+      levelTitle = `💡 [Open Proposal] ${sub.level_name || 'Untitled'} (GD ID: ${sub.gd_id || 'N/A'})`;
+    } else if (isOpenRun) {
       levelTitle = `🔓 [Open Run] ${sub.level_name || 'Open Level'} (GD ID: ${sub.gd_id || 'N/A'})`;
     } else if (isNewVerification) {
       levelTitle = `⭐ [New Level] ${sub.level_name || 'Untitled'} (GD ID: ${sub.gd_id || 'N/A'})`;
@@ -1927,6 +1961,8 @@ function renderQueue() {
           <button type="button" class="btn-deny deny-sub-btn" data-sub-id="${sub.id}">✕ Deny</button>
           ${isNewVerification || (isOpenRun && sub.percentage === 100) ? `
             <button type="button" class="btn-manual manual-accept-sub-btn" data-sub-id="${sub.id}">⭐ Place / Convert to List</button>
+          ` : isOpenProposal ? `
+            <button type="button" class="btn-approve approve-sub-btn" data-sub-id="${sub.id}">🔓 Approve to Open Verification</button>
           ` : `
             <button type="button" class="btn-approve approve-sub-btn" data-sub-id="${sub.id}">✓ Quick Accept</button>
           `}
