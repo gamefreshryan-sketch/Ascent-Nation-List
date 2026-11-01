@@ -1267,12 +1267,14 @@ function setupForms() {
       const val = subTypeSelect.value;
       compGroup.style.display = val === "completion" ? "block" : "none";
       openGroup.style.display = val === "open_run" ? "block" : "none";
-      veriGroup.style.display = val === "verification" ? "block" : "none";
+      // Show level info fields for both full verification and open proposals:
+      veriGroup.style.display = (val === "verification" || val === "propose_open") ? "block" : "none";
 
-      document.getElementById("subNewLevelName").required = (val === "verification");
-      document.getElementById("subNewLevelCreator").required = (val === "verification");
-      document.getElementById("subNewGdId").required = (val === "verification");
-      document.getElementById("subNewLevelLength").required = (val === "verification");
+      const isLevelInfoNeeded = (val === "verification" || val === "propose_open");
+      document.getElementById("subNewLevelName").required = isLevelInfoNeeded;
+      document.getElementById("subNewLevelCreator").required = isLevelInfoNeeded;
+      document.getElementById("subNewGdId").required = isLevelInfoNeeded;
+      document.getElementById("subNewLevelLength").required = isLevelInfoNeeded;
 
       if (val === "open_run") {
         updateOpenWrBanner();
@@ -1332,6 +1334,16 @@ function setupForms() {
         notes: notes,
         status: 'pending'
       };
+
+      if (type === "propose_open") {
+        payload.percentage = 0; // Unverified
+        payload.level_name = document.getElementById("subNewLevelName").value.trim();
+        payload.creator = document.getElementById("subNewLevelCreator").value.trim();
+        payload.gd_id = document.getElementById("subNewGdId").value.trim();
+        payload.approx_rank = document.getElementById("subNewApproxRank").value.trim() || 'Unassigned';
+        payload.level_length = document.getElementById("subNewLevelLength").value.trim();
+        payload.level_description = document.getElementById("subNewLevelDesc").value.trim();
+      }
 
       if (type === "open_run") {
         const openId = parseInt(document.getElementById("subOpenSelect").value, 10);
