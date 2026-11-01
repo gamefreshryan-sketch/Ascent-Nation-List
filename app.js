@@ -176,6 +176,20 @@ function setupDelegatedEvents() {
       return;
     }
 
+    // Edit Level button (Moderator)
+    const editBtn = e.target.closest(".edit-level-btn");
+    if (editBtn && editBtn.dataset.levelId) {
+      openEditLevelModal(editBtn.dataset.levelId);
+      return;
+    }
+
+    // Delete Level button (Moderator)
+    const delLevelBtn = e.target.closest(".delete-level-btn");
+    if (delLevelBtn && delLevelBtn.dataset.levelId) {
+      await deleteLevel(delLevelBtn.dataset.levelId);
+      return;
+    }
+
     // 5. Delete victor button
     const delBtn = e.target.closest(".delete-victor-btn");
     if (delBtn && delBtn.dataset.victorId) {
@@ -856,7 +870,27 @@ function renderLevelDetails(level) {
           `;
         }).join("") : `<p style="color: var(--text-muted); padding: 8px 0;">No approved records yet.</p>`}
       </div>
-    </div>
+      
+      <!-- 🛡️ MODERATOR LEVEL MANAGEMENT CARD -->
+      ${isModerator ? `
+        <div class="profile-settings-card" style="border-color: var(--accent); margin-top: 20px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
+            <h3 style="color: var(--accent); margin: 0;">🛡️ Moderator Level Actions</h3>
+            <span class="user-badge" style="margin: 0;">Staff Only</span>
+          </div>
+          <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 14px;">
+            Need to correct details, adjust requirement %, move placement rank, or remove this level?
+          </p>
+          <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <button type="button" class="btn-manual edit-level-btn" data-level-id="${level.id}">
+              ✏️ Edit Level & Rank
+            </button>
+            <button type="button" class="btn-danger delete-level-btn" data-level-id="${level.id}">
+              🗑️ Delete Level
+            </button>
+          </div>
+      </div>
+    ` : ''}
   `;
 }
 
@@ -2296,4 +2330,176 @@ function setupModModals() {
     alert(`${targetBanProfile.username} is unbanned.`);
     renderProfile();
   });
+
+  setupEditLevelModalHandlers();
+}
+
+// Open the Edit Modal with prefilled values
+function openEditLevelModal(levelId) {
+  if (!isModerator) return;
+  const level = currentLevels.find(l => l.id == levelId);
+  if (!level) return;
+
+  document.getElementById("editLevelId").value = level.id;
+  document.getElementById("editLevelOldRank").value = level.rank;
+  document.getElementById("editLevelRank").value = level.rank;
+  document.getElementById("editLevelName").value = level.name;
+  document.getElementById("editLevelGdId").value = level.gd_id || "";
+  document.getElementById("editLevelCreator").value = level.creator || "";
+  document.getElementById("editLevelVerifier").value = level.verifier || "";
+  document.getElementById("editLevelLength").value = level.length || "1:00";
+  document.getElementById("editLevelMinPct").value = level.min_percentage || 100;
+  document.getElementById("editLevelVideo").value = level.video_url || "";
+  document.getElementById("editLevelDescription").value = level.description || "";
+
+  document.getElementById("editLevelModal").classList.add("active");
+}
+
+// Setup handlers for the Edit Modal
+function setupEditLevelModalHandlers() {
+  const modal = document.getElementById("editLevelModal");
+  const closeBtn = document.getElementById("closeEditLevelModal");
+  const cancelBtn = document.getElementById("cancelEditLevelBtn");
+  const deleteBtn = document.getElementById("editModalDeleteBtn");
+  const form = document.getElementById("editLevelForm");
+
+  if (closeBtn) closeBtn.onclick = () => modal.classList.remove("active");
+  if (cancelBtn) cancelBtn.onclick = () => modal.classList.remove("active");
+
+  if (deleteBtn) {
+    deleteBtn.onclick = async () => {
+      const levelId = document.getElementById("editLevelId").value;
+      modal.classList.remove("active");
+      await deleteLevel(levelId);
+    };
+  }
+
+  if (form) {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!isModerator) return;
+
+      const levelId = parseInt(document.getElementById("editLevelId").value, 10);
+      const oldRank = parseInt(document.getElementById("editLevelOldRank").value, 10);
+      const newRank = parseInt(document.getElementById("editLevelRank").value, 10);
+      const name = document.getElementById("editLevelName").value.trim();
+      const gdId = document.getElementById("editLevelGdId").value.trim();
+      const creator = document.getElementById("editLevelCreator").value.trim();
+      const verifier = document.getElementById("editLevelVerifier").value.trim();
+      const length = document.getElementById("editLevelLength").value.trim();
+      const minPct = parseInt(document.getElementById("editLevelMinPct").value, 10) || 100;
+      const video = safeUrl(document.getElementById("editLevelVideo").value.trim());
+      const description = document.getElementById("editLevelDescription").value.trim();
+
+      if (!video) {
+        alert("Please enter a valid HTTP/HTTPS video URL.");
+        return;
+      }
+
+      const saveBtn = document.getElementById("saveEditLevelBtn");
+      saveBtn.disabled = true;
+      saveBtn.textContent = "Updating...";
+
+      try {
+        // If rank has changed, shift other levels to avoid collisions and keep list sequential
+        if (newRank !== oldRank) {
+          // 1. Temporarily move this level out of the active rank space
+          await supabaseClient.from('levels').update({ rank: -9999 }).eq('id', levelId);
+
+          if (newRank < oldRank) {
+            // Moving UP in difficulty: shift intermediate levels down (+1) in reverse order
+            const shiftDown = currentLevels
+              .filter(l => l.rank >= newRank && l.rank < oldRank && l.id !== levelId)
+              .sort((a, b) => b.rank - a.rank);
+
+            for (const lvl of shiftDown) {
+              await supabaseClient.from('levels').update({ rank: lvl.rank + 1 }).eq('id', lvl.id);
+            }
+          } else {
+            // Moving DOWN in difficulty: shift intermediate levels up (-1) in ascending order
+            const shiftUp = currentLevels
+              .filter(l => l.rank > oldRank && l.rank <= newRank && l.id !== levelId)
+              .sort((a, b) => a.rank - b.rank);
+
+            for (const lvl of shiftUp) {
+              await supabaseClient.from('levels').update({ rank: lvl.rank - 1 }).eq('id', lvl.id);
+            }
+          }
+        }
+
+        // 2. Save all updated fields and final rank
+        const { error } = await supabaseClient.from('levels').update({
+          rank: newRank,
+          name,
+          gd_id: gdId,
+          creator,
+          verifier,
+          length,
+          min_percentage: minPct,
+          video_url: video,
+          description
+        }).eq('id', levelId);
+
+        if (error) {
+          alert("Error updating level: " + error.message);
+          return;
+        }
+
+        await logModeratorAction(
+          "EDIT_LEVEL",
+          name,
+          `Updated level info (Rank: #${oldRank} -> #${newRank}, Req: ${minPct}%, GD ID: ${gdId})`
+        );
+
+        modal.classList.remove("active");
+        selectedLevelId = levelId;
+        await fetchLevelsFromDB();
+        alert(`Level "${name}" successfully updated!`);
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = "Save Changes";
+      }
+    });
+  }
+}
+
+// Delete Level Function with rank shifting
+async function deleteLevel(levelId) {
+  if (!isModerator) return;
+  const level = currentLevels.find(l => l.id == levelId);
+  if (!level) return;
+
+  const confirmText = prompt(
+    `🚨 DANGER: You are about to permanently delete "#${level.rank} - ${level.name}".\n\nThis will remove the level and all associated victor records.\nType "${level.name}" to confirm:`
+  );
+
+  if (confirmText !== level.name) {
+    if (confirmText !== null) alert("Deletion canceled: Level name did not match.");
+    return;
+  }
+
+  // 1. Delete associated victor records first
+  await supabaseClient.from('victors').delete().eq('level_id', levelId);
+
+  // 2. Delete the level itself
+  const { error } = await supabaseClient.from('levels').delete().eq('id', levelId);
+  if (error) {
+    alert("Error deleting level: " + error.message);
+    return;
+  }
+
+  // 3. Shift all subsequent levels up by 1 rank
+  const shiftLevels = currentLevels
+    .filter(l => l.rank > level.rank && l.id !== level.id)
+    .sort((a, b) => a.rank - b.rank);
+
+  for (const lvl of shiftLevels) {
+    await supabaseClient.from('levels').update({ rank: lvl.rank - 1 }).eq('id', lvl.id);
+  }
+
+  await logModeratorAction("DELETE_LEVEL", level.name, `Deleted level #${level.rank} and shifted subsequent ranks`);
+
+  selectedLevelId = null;
+  await fetchLevelsFromDB();
+  alert(`"${level.name}" has been removed from the list.`);
 }

@@ -1215,6 +1215,81 @@
     </div>
   </div>
 
+  <!-- MODAL: EDIT LEVEL -->
+  <div id="editLevelModal" class="modal">
+    <div class="modal-content modal-large">
+      <span class="close-btn" id="closeEditLevelModal">&times;</span>
+      <div class="modal-header">
+        <h3 style="color: var(--accent);">✏️ Edit Level Details & Rank</h3>
+        <p class="text-muted" style="font-size: 0.85rem;">Modify requirements, creator/verifier credits, video URL, or adjust placement rank.</p>
+      </div>
+
+      <form id="editLevelForm">
+        <input type="hidden" id="editLevelId">
+        <input type="hidden" id="editLevelOldRank">
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="editLevelRank">Assigned Rank *</label>
+            <input type="number" id="editLevelRank" min="1" required>
+          </div>
+          <div class="form-group">
+            <label for="editLevelName">Level Name *</label>
+            <input type="text" id="editLevelName" required maxlength="100">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="editLevelGdId">Geometry Dash Level ID *</label>
+            <input type="text" id="editLevelGdId" required pattern="^[0-9]{4,12}$" title="4-12 digit GD Level ID">
+          </div>
+          <div class="form-group">
+            <label for="editLevelCreator">Creator(s) *</label>
+            <input type="text" id="editLevelCreator" required maxlength="100">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="editLevelVerifier">Verifier *</label>
+            <input type="text" id="editLevelVerifier" required maxlength="50">
+          </div>
+          <div class="form-group">
+            <label for="editLevelLength">Level Length *</label>
+            <input type="text" id="editLevelLength" required maxlength="25">
+          </div>
+          <div class="form-group">
+            <label for="editLevelMinPct">Requirement % *</label>
+            <input type="number" id="editLevelMinPct" min="1" max="100" required>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="editLevelVideo">Verification Video URL *</label>
+          <input type="url" id="editLevelVideo" required>
+        </div>
+
+        <div class="form-group">
+          <label for="editLevelDescription">Level Description</label>
+          <textarea id="editLevelDescription" rows="2" maxlength="500"></textarea>
+        </div>
+
+        <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 14px;">
+          <button type="button" id="editModalDeleteBtn" class="btn-danger">
+            🗑️ Delete Level
+          </button>
+          <div style="display: flex; gap: 10px;">
+            <button type="button" id="cancelEditLevelBtn" class="btn-secondary">Cancel</button>
+            <button type="submit" id="saveEditLevelBtn" class="submit-btn" style="width: auto; padding: 10px 22px;">
+              Save Changes
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Scripts -->
   <script src="config.js"></script>
   <script src="app.js"></script>
