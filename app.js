@@ -13,6 +13,9 @@ let pendingSubmissionsCache = [];
 let currentRejectSubmissionId = null;
 let profilesCache = {};
 
+let currentLeaderboardPage = 1;
+const LEADERBOARD_PAGE_SIZE = 25; // 25 players per page (clean & fast)
+
 // Helpers
 function isValidUsername(username) {
   return /^[a-zA-Z0-9_]{3,20}$/.test(username);
@@ -187,6 +190,19 @@ function setupDelegatedEvents() {
     const delLevelBtn = e.target.closest(".delete-level-btn");
     if (delLevelBtn && delLevelBtn.dataset.levelId) {
       await deleteLevel(delLevelBtn.dataset.levelId);
+      return;
+    }
+
+    // Leaderboard Pagination
+    if (e.target.id === "lbPrevPageBtn" && currentLeaderboardPage > 1) {
+      currentLeaderboardPage--;
+      renderLeaderboard();
+      return;
+    }
+
+    if (e.target.id === "lbNextPageBtn") {
+      currentLeaderboardPage++;
+      renderLeaderboard();
       return;
     }
 
@@ -667,27 +683,90 @@ function calculateAllPlayerStats() {
 }
 
 function renderLeaderboard() {
-  const sorted = calculateAllPlayerStats();
+  const allPlayers = calculateAllPlayerStats();
+  const query = (document.getElementById("leaderboardSearchInput")?.value || "").toLowerCase().trim();
+
+  // Filter by username or custom display name
+  let filtered = allPlayers;
+  if (query) {
+    filtered = allPlayers.filter(p => {
+      const dName = getDisplayName(p.name).toLowerCase();
+      return p.name.toLowerCase().includes(query) || dName.includes(query);
+    });
+  }
+
+  // Calculate pagination boundaries
+  const totalFiltered = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / LEADERBOARD_PAGE_SIZE));
+
+  if (currentLeaderboardPage > totalPages) currentLeaderboardPage = totalPages;
+  if (currentLeaderboardPage < 1) currentLeaderboardPage = 1;
+
+  const startIndex = (currentLeaderboardPage - 1) * LEADERBOARD_PAGE_SIZE;
+  const endIndex = Math.min(startIndex + LEADERBOARD_PAGE_SIZE, totalFiltered);
+  const pagePlayers = filtered.slice(startIndex, endIndex);
+
   const tbody = document.getElementById("leaderboardBody");
-  tbody.innerHTML = sorted.map((p) => {
-    const dName = getDisplayName(p.name);
-    const hasDiff = dName.toLowerCase() !== p.name.toLowerCase();
-    return `
+
+  if (pagePlayers.length === 0) {
+    tbody.innerHTML = `
       <tr>
-        <td><strong>#${p.rank}</strong></td>
-        <td>
-          <a href="#" class="player-link" data-player="${escapeHtml(p.name)}">
-            <strong>${escapeHtml(dName)}</strong>
-            ${hasDiff ? `<span class="text-muted" style="font-size:0.8rem; margin-left:4px;">(@${escapeHtml(p.name)})</span>` : ''}
-          </a>
+        <td colspan="6" style="padding: 24px; text-align: center; color: var(--text-muted);">
+          No players found${query ? ` matching "${escapeHtml(query)}"` : ''}.
         </td>
-        <td style="color: var(--accent); font-weight:700;">${p.points.toFixed(2)}</td>
-        <td>${p.completions}</td>
-        <td>${p.progressions}</td>
-        <td>${p.verifications}</td>
       </tr>
     `;
-  }).join("");
+  } else {
+    tbody.innerHTML = pagePlayers.map((p) => {
+      const dName = getDisplayName(p.name);
+      const hasDiff = dName.toLowerCase() !== p.name.toLowerCase();
+      return `
+        <tr>
+          <td><strong>#${p.rank}</strong></td>
+          <td>
+            <a href="#" class="player-link" data-player="${escapeHtml(p.name)}">
+              <strong>${escapeHtml(dName)}</strong>
+              ${hasDiff ? `<span class="text-muted" style="font-size:0.8rem; margin-left:4px;">(@${escapeHtml(p.name)})</span>` : ''}
+            </a>
+          </td>
+          <td style="color: var(--accent); font-weight:700;">${p.points.toFixed(2)}</td>
+          <td>${p.completions}</td>
+          <td>${p.progressions}</td>
+          <td>${p.verifications}</td>
+        </tr>
+      `;
+    }).join("");
+  }
+
+  // Update pagination indicators
+  const pageInfo = document.getElementById("leaderboardPageInfo");
+  const pageText = document.getElementById("lbCurrentPageText");
+  const prevBtn = document.getElementById("lbPrevPageBtn");
+  const nextBtn = document.getElementById("lbNextPageBtn");
+
+  if (pageInfo) {
+    if (totalFiltered === 0) {
+      pageInfo.textContent = "0 players found";
+    } else {
+      pageInfo.textContent = `Showing ${startIndex + 1}–${endIndex} of ${totalFiltered} player${totalFiltered === 1 ? '' : 's'}${query ? ' (filtered)' : ''}`;
+    }
+  }
+
+  if (pageText) {
+    pageText.textContent = `Page ${currentLeaderboardPage} of ${totalPages}`;
+  }
+
+  if (prevBtn) {
+    prevBtn.disabled = currentLeaderboardPage <= 1;
+    prevBtn.style.opacity = currentLeaderboardPage <= 1 ? "0.4" : "1";
+    prevBtn.style.cursor = currentLeaderboardPage <= 1 ? "not-allowed" : "pointer";
+  }
+
+  if (nextBtn) {
+    nextBtn.disabled = currentLeaderboardPage >= totalPages;
+    nextBtn.style.opacity = currentLeaderboardPage >= totalPages ? "0.4" : "1";
+    nextBtn.style.cursor = currentLeaderboardPage >= totalPages ? "not-allowed" : "pointer";
+  }
 }
 
 // MAIN & EXTENDED LIST RENDER
@@ -2171,6 +2250,12 @@ function setupNavigation() {
 function setupSearch() {
   document.getElementById("searchInput")?.addEventListener("input", () => renderList());
   document.getElementById("openSearchInput")?.addEventListener("input", () => renderOpenList());
+  
+  // 🔍 Leaderboard search
+  document.getElementById("leaderboardSearchInput")?.addEventListener("input", () => {
+    currentLeaderboardPage = 1; // Reset to page 1 on search
+    renderLeaderboard();
+  });
 }
 
 function setupAuth() {
