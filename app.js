@@ -1324,6 +1324,7 @@ function setupForms() {
 
       const playerName = currentProfile?.username || "Player";
 
+      // 1. You create the base payload:
       let payload = {
         user_id: currentUser.id,
         player_name: playerName,
@@ -1335,16 +1336,7 @@ function setupForms() {
         status: 'pending'
       };
 
-      if (type === "propose_open") {
-        payload.percentage = 0; // Unverified
-        payload.level_name = document.getElementById("subNewLevelName").value.trim();
-        payload.creator = document.getElementById("subNewLevelCreator").value.trim();
-        payload.gd_id = document.getElementById("subNewGdId").value.trim();
-        payload.approx_rank = document.getElementById("subNewApproxRank").value.trim() || 'Unassigned';
-        payload.level_length = document.getElementById("subNewLevelLength").value.trim();
-        payload.level_description = document.getElementById("subNewLevelDesc").value.trim();
-      }
-
+      // 2. THIS IS THE IF / ELSE BLOCK WHERE IT GOES:
       if (type === "open_run") {
         const openId = parseInt(document.getElementById("subOpenSelect").value, 10);
         const openLvl = currentOpenLevels.find(l => l.id == openId);
@@ -1361,18 +1353,39 @@ function setupForms() {
           return;
         }
 
+        payload.level_id = null;
         payload.open_level_id = openId;
         payload.percentage = pct;
         payload.level_name = openLvl.name;
         payload.creator = openLvl.creator;
         payload.gd_id = openLvl.gd_id;
         payload.approx_rank = openLvl.approx_rank;
+
+      // ⬇️ PLACE IT RIGHT HERE: ⬇️
+      } else if (type === "propose_open") {
+        const gdId = document.getElementById("subNewGdId").value.trim();
+        if (!gdId) {
+          alert("A valid Geometry Dash Level ID is required.");
+          return;
+        }
+        payload.level_id = null;
+        payload.open_level_id = null;
+        payload.percentage = 0; // 0% means unverified
+        payload.level_name = document.getElementById("subNewLevelName").value.trim();
+        payload.creator = document.getElementById("subNewLevelCreator").value.trim();
+        payload.gd_id = gdId;
+        payload.approx_rank = document.getElementById("subNewApproxRank").value.trim() || 'Unassigned';
+        payload.level_length = document.getElementById("subNewLevelLength").value.trim();
+        payload.level_description = document.getElementById("subNewLevelDesc").value.trim();
+
       } else if (type === "verification") {
         const gdId = document.getElementById("subNewGdId").value.trim();
         if (!gdId) {
           alert("A valid Geometry Dash Level ID is required.");
           return;
         }
+        payload.level_id = null;
+        payload.open_level_id = null;
         payload.percentage = 100;
         payload.level_name = document.getElementById("subNewLevelName").value.trim();
         payload.creator = document.getElementById("subNewLevelCreator").value.trim();
@@ -1381,13 +1394,18 @@ function setupForms() {
         payload.level_length = document.getElementById("subNewLevelLength").value.trim();
         payload.min_percentage = parseInt(document.getElementById("subNewLevelMinPct").value, 10) || 100;
         payload.level_description = document.getElementById("subNewLevelDesc").value.trim();
+
       } else {
-        payload.level_id = parseInt(document.getElementById("subLevelSelect").value, 10);
+        // Standard list completion
+        const selectedVal = document.getElementById("subLevelSelect").value;
+        payload.level_id = parseInt(selectedVal, 10);
+        payload.open_level_id = null;
         payload.percentage = parseInt(document.getElementById("subPercentage").value, 10);
         const selectedLvl = currentLevels.find(l => l.id == payload.level_id);
         payload.gd_id = selectedLvl ? selectedLvl.gd_id : '';
       }
 
+      // 3. Right after this block, the code continues with:
       submitBtn.disabled = true;
       submitBtn.textContent = "Submitting to Queue...";
 
