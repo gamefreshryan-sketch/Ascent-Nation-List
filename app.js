@@ -140,6 +140,21 @@ document.addEventListener("DOMContentLoaded", async () => {
   await fetchLevelsFromDB();
   await fetchOpenLevelsFromDB();
   await refreshQueueState();
+
+  // Dev Notice Banner dismissal check
+  const devBanner = document.getElementById("devNoticeBanner");
+  const closeDevBtn = document.getElementById("closeDevNoticeBtn");
+
+  if (sessionStorage.getItem("anl_dev_notice_dismissed") === "true") {
+    if (devBanner) devBanner.style.display = "none";
+  }
+
+  if (closeDevBtn && devBanner) {
+    closeDevBtn.addEventListener("click", () => {
+      devBanner.style.display = "none";
+      sessionStorage.setItem("anl_dev_notice_dismissed", "true");
+    });
+  }
 });
 
 // Click delegation
