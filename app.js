@@ -1,6 +1,8 @@
 let currentLevels = [];
+let currentOpenLevels = [];
 let currentTab = "main";
 let selectedLevelId = null;
+let selectedOpenLevelId = null;
 let currentUser = null;
 let currentProfile = null;
 let isModerator = false;
@@ -50,6 +52,18 @@ function formatDate(dStr) {
   if (!dStr) return '';
   const d = new Date(dStr);
   return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function copyToClipboard(text, btnElement) {
+  navigator.clipboard.writeText(text).then(() => {
+    if (btnElement) {
+      const orig = btnElement.innerHTML;
+      btnElement.innerHTML = "✓ Copied!";
+      setTimeout(() => { btnElement.innerHTML = orig; }, 1600);
+    }
+  }).catch(() => {
+    prompt("Copy Geometry Dash Level ID:", text);
+  });
 }
 
 function calculatePoints(rank) {
@@ -121,6 +135,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   await fetchProfilesCache();
   await checkAuthSession();
   await fetchLevelsFromDB();
+  await fetchOpenLevelsFromDB();
   await refreshQueueState();
 });
 
@@ -135,14 +150,23 @@ function setupDelegatedEvents() {
       return;
     }
 
-    // 2. Return to own profile
+    // 2. Copy GD Level ID Button
+    const copyBtn = e.target.closest(".copy-gdid-btn");
+    if (copyBtn && copyBtn.dataset.gdid) {
+      e.preventDefault();
+      e.stopPropagation();
+      copyToClipboard(copyBtn.dataset.gdid, copyBtn);
+      return;
+    }
+
+    // 3. Return to own profile
     if (e.target.id === "viewMyProfileBtn") {
       activeProfilePlayer = null;
       renderProfile();
       return;
     }
 
-    // 3. Profile records sort
+    // 4. Profile records sort
     const sortBtn = e.target.closest(".sort-btn");
     if (sortBtn && sortBtn.dataset.sort) {
       document.querySelectorAll(".sort-btn").forEach(b => b.classList.remove("active"));
@@ -152,28 +176,42 @@ function setupDelegatedEvents() {
       return;
     }
 
-    // 4. Delete victor button
+    // 5. Delete victor button
     const delBtn = e.target.closest(".delete-victor-btn");
     if (delBtn && delBtn.dataset.victorId) {
       await deleteVictor(delBtn.dataset.victorId);
       return;
     }
 
-    // 5. Queue Direct Approve
+    // 6. Queue Direct Approve
     const approveBtn = e.target.closest(".approve-sub-btn");
     if (approveBtn && approveBtn.dataset.subId) {
       await approveSubmission(approveBtn.dataset.subId);
       return;
     }
 
-    // 6. Queue Manual Accept
+    // 7. Queue Manual Accept / Convert to List
     const manualBtn = e.target.closest(".manual-accept-sub-btn");
     if (manualBtn && manualBtn.dataset.subId) {
       openManualAcceptModal(manualBtn.dataset.subId);
       return;
     }
 
-    // 7. Queue Deny
+    // 8. Promote Open Level from Details Pane
+    const promoteOpenBtn = e.target.closest(".promote-open-level-btn");
+    if (promoteOpenBtn && promoteOpenBtn.dataset.openId) {
+      openManualAcceptFromOpenLevel(promoteOpenBtn.dataset.openId);
+      return;
+    }
+
+    // 9. Delete Open Level
+    const delOpenBtn = e.target.closest(".delete-open-level-btn");
+    if (delOpenBtn && delOpenBtn.dataset.openId) {
+      await deleteOpenLevel(delOpenBtn.dataset.openId);
+      return;
+    }
+
+    // 10. Queue Deny
     const denyBtn = e.target.closest(".deny-sub-btn");
     if (denyBtn && denyBtn.dataset.subId) {
       currentRejectSubmissionId = denyBtn.dataset.subId;
@@ -182,25 +220,63 @@ function setupDelegatedEvents() {
       document.getElementById("rejectModal").classList.add("active");
       return;
     }
+
+    // 11. Quick prefill submit from Open Level view
+    const submitOpenBtn = e.target.closest(".submit-open-run-action");
+    if (submitOpenBtn && submitOpenBtn.dataset.openId) {
+      switchTab("submit");
+      const subTypeSelect = document.getElementById("subType");
+      subTypeSelect.value = "open_run";
+      subTypeSelect.dispatchEvent(new Event("change"));
+      document.getElementById("subOpenSelect").value = submitOpenBtn.dataset.openId;
+      updateOpenWrBanner();
+      return;
+    }
   });
 }
 
 function openPlayerProfile(playerName) {
   activeProfilePlayer = playerName.trim();
+  switchTab("profile");
+  renderProfile();
+}
 
+function switchTab(tab) {
+  currentTab = tab;
   document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
   document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
 
-  const profileBtn = document.getElementById("profileTabBtn");
-  if (profileBtn && currentUser) {
-    profileBtn.classList.add("active");
+  const targetNavBtn = document.querySelector(`.nav-btn[data-tab="${tab}"]`);
+  if (targetNavBtn) targetNavBtn.classList.add("active");
+
+  if (tab === "main" || tab === "extended") {
+    document.getElementById("listView")?.classList.add("active");
+    renderList();
+  } else if (tab === "open") {
+    document.getElementById("openListView")?.classList.add("active");
+    renderOpenList();
+  } else if (tab === "leaderboard") {
+    document.getElementById("leaderboardView")?.classList.add("active");
+    renderLeaderboard();
+  } else if (tab === "submit") {
+    document.getElementById("submitView")?.classList.add("active");
+    checkSubmissionRestrictions();
+  } else if (tab === "profile") {
+    document.getElementById("profileView")?.classList.add("active");
+    renderProfile();
+  } else if (tab === "rules") {
+    document.getElementById("rulesView")?.classList.add("active");
+  } else if (tab === "about") {
+    document.getElementById("aboutView")?.classList.add("active");
+  } else if (tab === "queue") {
+    document.getElementById("queueView")?.classList.add("active");
+    renderQueue();
+  } else if (tab === "admin") {
+    document.getElementById("adminView")?.classList.add("active");
+  } else if (tab === "logs") {
+    document.getElementById("logsView")?.classList.add("active");
+    fetchAndRenderModLogs();
   }
-
-  const profileView = document.getElementById("profileView");
-  if (profileView) profileView.classList.add("active");
-
-  currentTab = "profile";
-  renderProfile();
 }
 
 async function checkAuthSession() {
@@ -214,7 +290,6 @@ async function checkAuthSession() {
       .eq('id', currentUser.id)
       .maybeSingle();
 
-    // First time login via Discord -> prompt to pick their GD name
     if (!prof) {
       const suggestedName = currentUser.user_metadata?.custom_claims?.global_name 
                          || currentUser.user_metadata?.full_name 
@@ -229,13 +304,9 @@ async function checkAuthSession() {
     currentProfile = prof;
     isModerator = prof.is_mod === true;
 
-    // Emergency Lockdown Barrier
     if (prof.is_locked) {
       await supabaseClient.auth.signOut();
-      currentUser = null;
-      currentProfile = null;
-      isModerator = false;
-      alert(`🚨 EMERGENCY LOCKDOWN ACTIVE:\n\n${prof.locked_reason || 'This account has been locked.'}\n\nPlease contact the administrator.`);
+      alert(`🚨 EMERGENCY LOCKDOWN ACTIVE:\n\n${prof.locked_reason || 'This account has been locked.'}`);
       setLoggedOutState();
       return;
     }
@@ -243,10 +314,7 @@ async function checkAuthSession() {
     if (prof.is_banned) {
       const reason = prof.ban_reason || "Violation of Ascent Nation List rules.";
       await supabaseClient.auth.signOut();
-      currentUser = null;
-      currentProfile = null;
-      isModerator = false;
-      alert(`⛔ YOUR ACCOUNT HAS BEEN BANNED:\n\nReason: "${reason}"\n\nIf you believe this is a false ban, appeal via our Discord.`);
+      alert(`⛔ YOUR ACCOUNT HAS BEEN BANNED:\n\nReason: "${reason}"`);
       setLoggedOutState();
       return;
     }
@@ -266,9 +334,7 @@ function setLoggedInState() {
   });
 
   const profileTabBtn = document.getElementById("profileTabBtn");
-  if (profileTabBtn) {
-    profileTabBtn.style.display = "inline-flex";
-  }
+  if (profileTabBtn) profileTabBtn.style.display = "inline-flex";
 
   const authBtn = document.getElementById("authBtn");
   authBtn.innerHTML = `Logout (${escapeHtml(displayGreeting)})`;
@@ -286,9 +352,7 @@ function setLoggedOutState() {
   currentProfile = null;
   isModerator = false;
 
-  document.querySelectorAll(".mod-only").forEach(el => {
-    el.style.display = "none";
-  });
+  document.querySelectorAll(".mod-only").forEach(el => el.style.display = "none");
 
   const profileTabBtn = document.getElementById("profileTabBtn");
   if (profileTabBtn) {
@@ -311,10 +375,7 @@ function setLoggedOutState() {
   };
 
   if (currentTab === "profile" && !activeProfilePlayer) {
-    currentTab = "main";
-    document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
-    document.getElementById("listView")?.classList.add("active");
-    document.querySelector('.nav-btn[data-tab="main"]')?.classList.add("active");
+    switchTab("main");
   } else {
     renderProfile();
   }
@@ -331,7 +392,7 @@ function checkSubmissionRestrictions() {
     noticeBox.style.background = "rgba(88, 101, 242, 0.15)";
     noticeBox.style.border = "1px solid #5865F2";
     noticeBox.style.color = "#fff";
-    noticeBox.innerHTML = `💬 You must be signed in with Discord to submit records. Click the <strong>"Sign In with Discord"</strong> button in the top right.`;
+    noticeBox.innerHTML = `💬 You must be signed in with Discord to submit records. Click <strong>"Sign In with Discord"</strong> in the top right.`;
     if (submitBtn) submitBtn.disabled = true;
     return;
   }
@@ -389,6 +450,22 @@ async function fetchLevelsFromDB() {
   populateDropdowns();
 }
 
+async function fetchOpenLevelsFromDB() {
+  const { data, error } = await supabaseClient
+    .from('open_levels')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error("Error fetching open levels:", error);
+    return;
+  }
+
+  currentOpenLevels = data || [];
+  renderOpenList();
+  populateOpenDropdowns();
+}
+
 async function refreshQueueState() {
   const { data, error } = await supabaseClient
     .from('submissions')
@@ -421,7 +498,7 @@ async function refreshQueueState() {
 
 function populateDropdowns() {
   const optionsHtml = currentLevels.map(lvl => `
-    <option value="${escapeHtml(lvl.id)}">#${lvl.rank} - ${escapeHtml(lvl.name)}</option>
+    <option value="${escapeHtml(lvl.id)}">#${lvl.rank} - ${escapeHtml(lvl.name)} [ID: ${escapeHtml(lvl.gd_id || 'N/A')}]</option>
   `).join("");
 
   const subSelect = document.getElementById("subLevelSelect");
@@ -429,6 +506,51 @@ function populateDropdowns() {
 
   const adminSelect = document.getElementById("victorLevelSelect");
   if (adminSelect) adminSelect.innerHTML = optionsHtml;
+}
+
+function populateOpenDropdowns() {
+  const openSelect = document.getElementById("subOpenSelect");
+  if (!openSelect) return;
+
+  if (currentOpenLevels.length === 0) {
+    openSelect.innerHTML = `<option value="">No open verification levels available</option>`;
+    return;
+  }
+
+  openSelect.innerHTML = currentOpenLevels.map(lvl => `
+    <option value="${lvl.id}">${escapeHtml(lvl.name)} (by ${escapeHtml(lvl.creator)}) [WR: ${lvl.best_progress || 0}%] - ${escapeHtml(lvl.approx_rank || 'Unassigned')}</option>
+  `).join("");
+
+  updateOpenWrBanner();
+}
+
+function updateOpenWrBanner() {
+  const openSelect = document.getElementById("subOpenSelect");
+  const banner = document.getElementById("subOpenWrNotice");
+  if (!openSelect || !banner) return;
+
+  const selectedId = openSelect.value;
+  const lvl = currentOpenLevels.find(l => l.id == selectedId);
+
+  if (!lvl) {
+    banner.innerHTML = "No level selected.";
+    return;
+  }
+
+  if (lvl.best_progress && lvl.best_progress > 0) {
+    const holderDisplay = getDisplayName(lvl.best_holder || "Player");
+    banner.innerHTML = `
+      🏆 <strong>Current World Record:</strong> <span style="color:var(--accent-gold); font-weight:700;">${lvl.best_progress}%</span> by <strong>${escapeHtml(holderDisplay)}</strong>.
+      <br><span style="font-size:0.8rem; color:var(--text-muted);">Your run must be <strong>greater than ${lvl.best_progress}%</strong> or <strong>100%</strong> to qualify.</span>
+    `;
+    const minRequiredRun = lvl.best_progress + 1;
+    document.getElementById("subOpenPercentage").min = Math.min(100, minRequiredRun);
+  } else {
+    banner.innerHTML = `
+      ⭐ <strong>No WR recorded yet!</strong> Any run &ge; 1% qualifies as the new WR, or 100% to verify.
+    `;
+    document.getElementById("subOpenPercentage").min = 1;
+  }
 }
 
 function calculateAllPlayerStats() {
@@ -439,31 +561,20 @@ function calculateAllPlayerStats() {
     const minReq = level.min_percentage ? parseInt(level.min_percentage, 10) : 100;
     const vNameClean = level.verifier ? level.verifier.trim() : null;
 
-    // Credit Verifier
     if (vNameClean) {
       if (!playerStats[vNameClean]) {
         playerStats[vNameClean] = {
-          points: 0,
-          completions: 0,
-          progressions: 0,
-          verifications: 0,
-          beatenLevels: [],
-          verifiedLevels: []
+          points: 0, completions: 0, progressions: 0, verifications: 0, beatenLevels: [], verifiedLevels: []
         };
       }
       const verifierPts = basePts * (1 + SETTINGS.verifierBonusPct);
       playerStats[vNameClean].points += verifierPts;
       playerStats[vNameClean].verifications += 1;
       playerStats[vNameClean].verifiedLevels.push({
-        id: level.id,
-        rank: level.rank,
-        name: level.name,
-        creator: level.creator,
-        points: verifierPts
+        id: level.id, rank: level.rank, name: level.name, creator: level.creator, points: verifierPts
       });
     }
 
-    // Credit Victors
     if (level.victors) {
       level.victors.forEach(victor => {
         const pName = (victor.player_name || '').trim();
@@ -474,12 +585,7 @@ function calculateAllPlayerStats() {
 
         if (!playerStats[pName]) {
           playerStats[pName] = {
-            points: 0,
-            completions: 0,
-            progressions: 0,
-            verifications: 0,
-            beatenLevels: [],
-            verifiedLevels: []
+            points: 0, completions: 0, progressions: 0, verifications: 0, beatenLevels: [], verifiedLevels: []
           };
         }
 
@@ -490,11 +596,8 @@ function calculateAllPlayerStats() {
           playerStats[pName].points += earnedPoints;
         }
 
-        if (pct === 100) {
-          playerStats[pName].completions += 1;
-        } else {
-          playerStats[pName].progressions += 1;
-        }
+        if (pct === 100) playerStats[pName].completions += 1;
+        else playerStats[pName].progressions += 1;
 
         playerStats[pName].beatenLevels.push({
           id: level.id,
@@ -546,6 +649,361 @@ function renderLeaderboard() {
   }).join("");
 }
 
+// MAIN & EXTENDED LIST RENDER
+function renderList() {
+  const listContainer = document.getElementById("levelList");
+  listContainer.innerHTML = "";
+
+  const query = (document.getElementById("searchInput")?.value || "").toLowerCase().trim();
+  const isMain = currentTab === "main";
+
+  let filtered = currentLevels.filter(lvl => 
+    isMain ? lvl.rank <= SETTINGS.mainListCutoff : lvl.rank > SETTINGS.mainListCutoff
+  );
+
+  if (query) {
+    filtered = filtered.filter(lvl =>
+      lvl.name.toLowerCase().includes(query) ||
+      lvl.creator.toLowerCase().includes(query) ||
+      (lvl.verifier && lvl.verifier.toLowerCase().includes(query)) ||
+      (lvl.verifier && getDisplayName(lvl.verifier).toLowerCase().includes(query)) ||
+      (lvl.gd_id && String(lvl.gd_id).toLowerCase().includes(query))
+    );
+  }
+
+  if (filtered.length === 0) {
+    listContainer.innerHTML = `<div style="padding: 20px; color: var(--text-muted);">No levels found.</div>`;
+    document.getElementById("levelDetails").innerHTML = `<div class="loading">No level selected.</div>`;
+    return;
+  }
+
+  let selected = filtered.find(l => l.id === selectedLevelId);
+  if (!selected) {
+    selected = filtered[0];
+    selectedLevelId = selected.id;
+  }
+
+  filtered.forEach((level) => {
+    const item = document.createElement("div");
+    item.className = `level-item ${level.id === selectedLevelId ? "active" : ""}`;
+
+    const thumbUrl = getYouTubeThumbnailUrl(level.video_url);
+    const maxPts = calculatePoints(level.rank);
+    const minReq = level.min_percentage ? parseInt(level.min_percentage, 10) : 100;
+    const vDisplay = getDisplayName(level.verifier);
+
+    let pointsText = "";
+    if (maxPts > 0) {
+      if (minReq < 100) {
+        const minPts = calculatePointsForRecord(level.rank, minReq, minReq);
+        pointsText = `${minPts.toFixed(1)} &mdash; ${maxPts.toFixed(1)} pts`;
+      } else {
+        pointsText = `${maxPts.toFixed(2)} pts`;
+      }
+    } else {
+      pointsText = "0.00 pts (Extended)";
+    }
+
+    item.innerHTML = `
+      ${thumbUrl ? `<div class="item-bg-thumb" style="background-image: url('${thumbUrl}')"></div>` : ''}
+      <div class="item-overlay"></div>
+      <div class="item-content">
+        <div class="item-title-row">
+          <span class="item-rank">#${level.rank}</span>
+          <span class="item-name">${escapeHtml(level.name)}</span>
+        </div>
+        <div class="item-meta-row">
+          <span class="item-author">by ${escapeHtml(level.creator)}</span>
+          <span class="item-sep">|</span>
+          <span class="item-verifier">${escapeHtml(vDisplay || 'Unknown')}</span>
+        </div>
+        <div class="item-points-row" style="display:flex; justify-content:space-between; align-items:center;">
+          <span class="item-points-label">${pointsText}</span>
+          ${level.gd_id ? `
+            <button type="button" class="gdid-pill copy-gdid-btn" data-gdid="${escapeHtml(level.gd_id)}" title="Click to copy GD Level ID">
+              ID: ${escapeHtml(level.gd_id)} 📋
+            </button>
+          ` : ''}
+        </div>
+      </div>
+    `;
+
+    item.addEventListener("click", () => {
+      selectedLevelId = level.id;
+      renderList();
+    });
+
+    listContainer.appendChild(item);
+  });
+
+  renderLevelDetails(selected);
+}
+
+function renderLevelDetails(level) {
+  const container = document.getElementById("levelDetails");
+  if (!level) {
+    container.innerHTML = `<div class="loading">Select a level...</div>`;
+    return;
+  }
+
+  const points = calculatePoints(level.rank);
+  const minReq = level.min_percentage ? parseInt(level.min_percentage, 10) : 100;
+  const lengthStr = level.length || "N/A";
+  const verifierBonus = (points * SETTINGS.verifierBonusPct).toFixed(2);
+  const totalVerifierPts = (points * (1 + SETTINGS.verifierBonusPct)).toFixed(2);
+  const embedUrl = getYouTubeEmbedUrl(level.video_url);
+  const verifierDisplayName = getDisplayName(level.verifier);
+
+  container.innerHTML = `
+    <div class="level-header">
+      <div class="level-title-group">
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <h2>#${level.rank} - ${escapeHtml(level.name)}</h2>
+          ${level.gd_id ? `
+            <button type="button" class="gdid-badge-btn copy-gdid-btn" data-gdid="${escapeHtml(level.gd_id)}" title="Copy GD Level ID">
+              In-Game ID: ${escapeHtml(level.gd_id)} 📋
+            </button>
+          ` : ''}
+        </div>
+        <p>
+          Created by <strong>${escapeHtml(level.creator)}</strong> | 
+          Verified by <a href="#" class="player-link" data-player="${escapeHtml(level.verifier)}"><strong>${escapeHtml(verifierDisplayName)}</strong></a>
+        </p>
+      </div>
+      <div class="points-pill">
+        ${points > 0 ? `${points.toFixed(2)} pts` : "0.00 pts (Extended)"}
+      </div>
+    </div>
+
+    <div class="video-wrapper">
+      ${embedUrl ? `<iframe src="${embedUrl}" title="Verification video" allowfullscreen></iframe>` : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);">No valid video available</div>`}
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <span>Level Length</span>
+        <strong>${escapeHtml(lengthStr)}</strong>
+      </div>
+      <div class="stat-card">
+        <span>List Requirement</span>
+        <strong style="color: var(--accent);">${minReq}% or better</strong>
+      </div>
+      <div class="stat-card">
+        <span>Verifier Bonus</span>
+        <strong>${points > 0 ? `+${verifierBonus} pts (${totalVerifierPts} total)` : '0 pts'}</strong>
+      </div>
+      <div class="stat-card">
+        <span>Total Records</span>
+        <strong>${level.victors ? level.victors.length : 0} Record(s)</strong>
+      </div>
+    </div>
+
+    <div class="stat-card" style="margin-bottom: 20px;">
+      <span>Description</span>
+      <strong style="font-size:0.85rem; font-weight: normal;">${escapeHtml(level.description || "No description provided.")}</strong>
+    </div>
+
+    <div class="victors-card">
+      <h3>Approved Records (&ge;${minReq}%)</h3>
+      <div class="victor-list">
+        ${level.victors && level.victors.length > 0 ? level.victors.map(v => {
+          const validProof = safeUrl(v.proof_url);
+          const pct = v.percentage || 100;
+          const vDisplayName = getDisplayName(v.player_name);
+          const hasDiff = vDisplayName.toLowerCase() !== (v.player_name || '').toLowerCase();
+          return `
+            <div class="victor-row">
+              <div>
+                <a href="#" class="player-link" data-player="${escapeHtml(v.player_name)}">
+                  <strong>${escapeHtml(vDisplayName)}</strong>
+                  ${hasDiff ? `<span class="text-muted" style="font-size:0.75rem; margin-left:4px;">(@${escapeHtml(v.player_name)})</span>` : ''}
+                </a>
+                <span class="pct-badge ${pct === 100 ? 'pct-100' : 'pct-partial'}">${pct}%</span>
+                <span class="text-muted" style="font-size:0.8rem; margin-left:6px;">(${escapeHtml(v.device || 'PC')})</span>
+              </div>
+              <div>
+                ${validProof ? `<a href="${validProof}" target="_blank" rel="noopener noreferrer">Proof</a>` : ''}
+                ${isModerator ? `<button type="button" class="delete-victor-btn" data-victor-id="${escapeHtml(v.id)}">✕</button>` : ''}
+              </div>
+            </div>
+          `;
+        }).join("") : `<p style="color: var(--text-muted); padding: 8px 0;">No approved records yet.</p>`}
+      </div>
+    </div>
+  `;
+}
+
+// OPEN VERIFICATION LIST RENDER
+function renderOpenList() {
+  const container = document.getElementById("openLevelList");
+  if (!container) return;
+  container.innerHTML = "";
+
+  const query = (document.getElementById("openSearchInput")?.value || "").toLowerCase().trim();
+  let filtered = currentOpenLevels;
+
+  if (query) {
+    filtered = filtered.filter(lvl =>
+      lvl.name.toLowerCase().includes(query) ||
+      lvl.creator.toLowerCase().includes(query) ||
+      (lvl.approx_rank && lvl.approx_rank.toLowerCase().includes(query)) ||
+      (lvl.gd_id && String(lvl.gd_id).toLowerCase().includes(query))
+    );
+  }
+
+  if (filtered.length === 0) {
+    container.innerHTML = `<div style="padding: 20px; color: var(--text-muted);">No open levels found.</div>`;
+    document.getElementById("openLevelDetails").innerHTML = `<div class="loading">No open level selected.</div>`;
+    return;
+  }
+
+  let selected = filtered.find(l => l.id === selectedOpenLevelId);
+  if (!selected) {
+    selected = filtered[0];
+    selectedOpenLevelId = selected.id;
+  }
+
+  filtered.forEach(lvl => {
+    const item = document.createElement("div");
+    item.className = `level-item ${lvl.id === selectedOpenLevelId ? "active" : ""}`;
+    const thumbUrl = getYouTubeThumbnailUrl(lvl.video_url);
+
+    item.innerHTML = `
+      ${thumbUrl ? `<div class="item-bg-thumb" style="background-image: url('${thumbUrl}')"></div>` : ''}
+      <div class="item-overlay"></div>
+      <div class="item-content">
+        <div class="item-title-row">
+          <span class="open-rank-badge">${escapeHtml(lvl.approx_rank || 'Open')}</span>
+          <span class="item-name">${escapeHtml(lvl.name)}</span>
+        </div>
+        <div class="item-meta-row">
+          <span class="item-author">by ${escapeHtml(lvl.creator)}</span>
+          <span class="item-sep">|</span>
+          <span style="color: var(--accent-gold); font-weight:600;">
+            WR: ${lvl.best_progress ? `${lvl.best_progress}%` : '0%'}
+          </span>
+        </div>
+        <div class="item-points-row" style="display:flex; justify-content:space-between; align-items:center;">
+          <span class="item-points-label" style="color:var(--text-muted);">0.00 pts (Unverified)</span>
+          ${lvl.gd_id ? `
+            <button type="button" class="gdid-pill copy-gdid-btn" data-gdid="${escapeHtml(lvl.gd_id)}" title="Copy GD Level ID">
+              ID: ${escapeHtml(lvl.gd_id)} 📋
+            </button>
+          ` : ''}
+        </div>
+      </div>
+    `;
+
+    item.addEventListener("click", () => {
+      selectedOpenLevelId = lvl.id;
+      renderOpenList();
+    });
+
+    container.appendChild(item);
+  });
+
+  renderOpenLevelDetails(selected);
+}
+
+function renderOpenLevelDetails(lvl) {
+  const container = document.getElementById("openLevelDetails");
+  if (!lvl) {
+    container.innerHTML = `<div class="loading">Select an open level...</div>`;
+    return;
+  }
+
+  const embedUrl = getYouTubeEmbedUrl(lvl.video_url);
+  const wrHolderDisplay = lvl.best_holder ? getDisplayName(lvl.best_holder) : "None";
+  const wrProofLink = safeUrl(lvl.best_proof);
+
+  container.innerHTML = `
+    <div class="level-header">
+      <div class="level-title-group">
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <span class="open-rank-badge" style="font-size:0.95rem; padding: 4px 10px;">${escapeHtml(lvl.approx_rank || 'Open')}</span>
+          <h2>${escapeHtml(lvl.name)}</h2>
+          ${lvl.gd_id ? `
+            <button type="button" class="gdid-badge-btn copy-gdid-btn" data-gdid="${escapeHtml(lvl.gd_id)}" title="Copy GD Level ID">
+              In-Game ID: ${escapeHtml(lvl.gd_id)} 📋
+            </button>
+          ` : ''}
+        </div>
+        <p>Created by <strong>${escapeHtml(lvl.creator)}</strong> | Open to all players for verification</p>
+      </div>
+      <div class="points-pill" style="border-color: var(--accent-gold); color: var(--accent-gold);">
+        Open Verification
+      </div>
+    </div>
+
+    <div class="video-wrapper">
+      ${embedUrl ? `<iframe src="${embedUrl}" title="Showcase video" allowfullscreen></iframe>` : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);">No showcase video available</div>`}
+    </div>
+
+    <!-- WR Progress Banner -->
+    <div class="open-wr-card">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+        <div>
+          <span style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); font-weight:700;">World Record Progress</span>
+          <h3 style="color: var(--accent-gold); font-size: 1.4rem; margin-top: 2px;">
+            ${lvl.best_progress ? `${lvl.best_progress}%` : 'No runs recorded yet (0%)'}
+          </h3>
+          <p style="font-size: 0.85rem; color: var(--text-muted);">
+            Held by: ${lvl.best_holder ? `<strong>${escapeHtml(wrHolderDisplay)}</strong>` : 'Nobody yet'}
+          </p>
+        </div>
+        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+          ${wrProofLink ? `<a href="${wrProofLink}" target="_blank" rel="noopener noreferrer" class="social-btn youtube" style="font-size:0.8rem;">Watch WR Proof ↗</a>` : ''}
+          <button type="button" class="submit-btn submit-open-run-action" data-open-id="${lvl.id}" style="width: auto; padding: 8px 18px;">
+            Submit Run / Verification
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <span>Level Length</span>
+        <strong>${escapeHtml(lvl.length || '1:00')}</strong>
+      </div>
+      <div class="stat-card">
+        <span>Estimated Rank</span>
+        <strong style="color: var(--accent);">${escapeHtml(lvl.approx_rank || 'TBD')}</strong>
+      </div>
+      <div class="stat-card">
+        <span>ANL Points Value</span>
+        <strong>0.00 pts (Pending)</strong>
+      </div>
+      <div class="stat-card">
+        <span>Verification Status</span>
+        <strong style="color: var(--accent-gold);">UNVERIFIED</strong>
+      </div>
+    </div>
+
+    <div class="stat-card" style="margin-bottom: 20px;">
+      <span>Level Description & Notes</span>
+      <strong style="font-size:0.85rem; font-weight: normal;">${escapeHtml(lvl.description || "No description provided.")}</strong>
+    </div>
+
+    ${isModerator ? `
+      <div class="profile-settings-card" style="border-color: var(--accent-gold); margin-top: 20px;">
+        <h3 style="color: var(--accent-gold);">🛡️ Moderator Open Level Actions</h3>
+        <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 12px;">
+          Once someone verifies this level, click Convert to place it onto the official ANL.
+        </p>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <button type="button" class="btn-manual promote-open-level-btn" data-open-id="${lvl.id}">
+            ⭐ Convert & Place onto ANL
+          </button>
+          <button type="button" class="btn-deny delete-open-level-btn" data-open-id="${lvl.id}">
+            🗑️ Delete Open Level
+          </button>
+        </div>
+      </div>
+    ` : ''}
+  `;
+}
+
+// USER & PLAYER PROFILE SYSTEM (RESTORED)
 async function renderProfile() {
   const allStats = calculateAllPlayerStats();
 
@@ -754,6 +1212,8 @@ async function renderProfileSubmissions(isViewingSelf) {
     let levelTitle = "";
     if (sub.type === "verification") {
       levelTitle = `[Verification] ${sub.level_name || 'New Level'} (by ${sub.creator || 'Unknown'})`;
+    } else if (sub.type === "open_run") {
+      levelTitle = `[Open Run] ${sub.level_name || 'Open Level'} (by ${sub.creator || 'Unknown'})`;
     } else {
       const level = currentLevels.find(l => l.id == sub.level_id);
       levelTitle = level ? `#${level.rank} - ${level.name}` : `Level ID: ${sub.level_id}`;
@@ -795,496 +1255,32 @@ async function renderProfileSubmissions(isViewingSelf) {
   }).join("");
 }
 
-function renderQueue() {
-  const container = document.getElementById("queueItemsList");
-  if (!isModerator) {
-    container.innerHTML = `<p class="text-muted">Unauthorized.</p>`;
-    return;
-  }
-
-  const typeFilter = document.getElementById("queueTypeFilter")?.value || "all";
-  const orderFilter = document.getElementById("queueOrderFilter")?.value || "asc";
-
-  let pending = pendingSubmissionsCache.filter(s => s.status === 'pending');
-
-  if (typeFilter !== "all") {
-    pending = pending.filter(s => s.type === typeFilter);
-  }
-
-  pending.sort((a, b) => {
-    const da = new Date(a.created_at).getTime();
-    const db = new Date(b.created_at).getTime();
-    return orderFilter === "asc" ? da - db : db - da;
-  });
-
-  if (pending.length === 0) {
-    container.innerHTML = `<div class="loading">No pending submissions in queue. Clean inbox! 🎉</div>`;
-    return;
-  }
-
-  container.innerHTML = pending.map((sub, index) => {
-    let levelTitle = "";
-    let isNewVerification = sub.type === "verification";
-
-    if (isNewVerification) {
-      levelTitle = `⭐ [New Level] ${sub.level_name || 'Untitled'} (by ${sub.creator || 'Unknown'})`;
-    } else {
-      const level = currentLevels.find(l => l.id == sub.level_id);
-      levelTitle = level ? `#${level.rank} - ${level.name} (Min Req: ${level.min_percentage || 100}%)` : `Level ID: ${sub.level_id}`;
-    }
-
-    const proofLink = safeUrl(sub.proof_url);
-    const rawLink = safeUrl(sub.raw_footage_url);
-    const playerDisplayName = getDisplayName(sub.player_name);
-    const isDiff = playerDisplayName.toLowerCase() !== sub.player_name.toLowerCase();
-
-    return `
-      <div class="queue-card">
-        <div class="queue-card-header">
-          <div>
-            <span class="queue-pos-indicator">#${index + 1} in Queue</span>
-            <strong style="margin-left: 8px; font-size: 1rem;">${escapeHtml(levelTitle)}</strong>
-            <span class="pct-badge ${sub.percentage === 100 ? 'pct-100' : 'pct-partial'}">${sub.percentage}%</span>
-          </div>
-          <span class="text-muted" style="font-size: 0.8rem;">Submitted: ${formatDate(sub.created_at)}</span>
-        </div>
-
-        <div class="queue-grid">
-          <div>
-            <span class="text-muted">Player:</span>
-            <strong>
-              <a href="#" class="player-link" data-player="${escapeHtml(sub.player_name)}">
-                ${escapeHtml(playerDisplayName)} ${isDiff ? `(@${escapeHtml(sub.player_name)})` : ''}
-              </a>
-            </strong>
-          </div>
-          <div>
-            <span class="text-muted">Type:</span>
-            <strong style="text-transform: capitalize; color: var(--accent);">${escapeHtml(sub.type)}</strong>
-          </div>
-          <div>
-            <span class="text-muted">Device:</span>
-            <strong>${escapeHtml(sub.device || 'PC')}</strong>
-          </div>
-          <div>
-            <span class="text-muted">Proof Footage:</span>
-            ${proofLink ? `<a href="${proofLink}" target="_blank" rel="noopener noreferrer">Watch Video ↗</a>` : 'None'}
-          </div>
-          ${rawLink ? `
-            <div>
-              <span class="text-muted">Raw Stream / Drive:</span>
-              <a href="${rawLink}" target="_blank" rel="noopener noreferrer">Inspect Raw ↗</a>
-            </div>
-          ` : ''}
-          ${isNewVerification ? `
-            <div>
-              <span class="text-muted">Length:</span>
-              <strong>${escapeHtml(sub.level_length || 'N/A')}</strong>
-            </div>
-            <div>
-              <span class="text-muted">Req %:</span>
-              <strong>${sub.min_percentage || 100}%</strong>
-            </div>
-          ` : ''}
-        </div>
-
-        ${sub.level_description ? `
-          <div style="background: var(--bg-secondary); padding: 6px 10px; border-radius: 6px; font-size: 0.8rem;">
-            <span class="text-muted">Level Info:</span> "${escapeHtml(sub.level_description)}"
-          </div>
-        ` : ''}
-
-        ${sub.notes ? `
-          <div style="background: var(--bg-secondary); padding: 6px 10px; border-radius: 6px; font-size: 0.8rem;">
-            <span class="text-muted">Submitter Notes:</span> "${escapeHtml(sub.notes)}"
-          </div>
-        ` : ''}
-
-        <div class="queue-actions">
-          <button type="button" class="btn-deny deny-sub-btn" data-sub-id="${sub.id}">✕ Deny with Reason</button>
-          <button type="button" class="btn-manual manual-accept-sub-btn" data-sub-id="${sub.id}">✍️ Manual Accept</button>
-          ${!isNewVerification ? `
-            <button type="button" class="btn-approve approve-sub-btn" data-sub-id="${sub.id}">✓ Quick Accept</button>
-          ` : ''}
-        </div>
-      </div>
-    `;
-  }).join("");
-}
-
-async function approveSubmission(subId) {
-  if (!isModerator) return;
-  const sub = pendingSubmissionsCache.find(s => s.id == subId);
-  if (!sub) return;
-
-  const level = currentLevels.find(l => l.id == sub.level_id);
-  const levelTitle = level ? `#${level.rank} - ${level.name}` : `Level #${sub.level_id}`;
-
-  if (!confirm(`Quick-approve record for ${sub.player_name} on ${levelTitle}?`)) return;
-
-  const modName = currentProfile?.username || "Moderator";
-
-  const { data: existingVictor, error: fetchErr } = await supabaseClient
-    .from('victors')
-    .select('id, percentage')
-    .eq('level_id', sub.level_id)
-    .ilike('player_name', sub.player_name.trim())
-    .maybeSingle();
-
-  if (fetchErr) {
-    alert("Error verifying existing records: " + fetchErr.message);
-    return;
-  }
-
-  if (existingVictor) {
-    if (sub.percentage > existingVictor.percentage) {
-      const { error: updateErr } = await supabaseClient
-        .from('victors')
-        .update({
-          percentage: sub.percentage,
-          proof_url: sub.proof_url,
-          device: sub.device,
-          user_id: sub.user_id
-        })
-        .eq('id', existingVictor.id);
-
-      if (updateErr) {
-        alert("Error upgrading victor record: " + updateErr.message);
-        return;
-      }
-    }
-  } else {
-    const { error: insertErr } = await supabaseClient
-      .from('victors')
-      .insert([{
-        level_id: sub.level_id,
-        player_name: sub.player_name,
-        user_id: sub.user_id,
-        percentage: sub.percentage,
-        proof_url: sub.proof_url,
-        device: sub.device
-      }]);
-
-    if (insertErr) {
-      alert("Error placing victor record: " + insertErr.message);
-      return;
-    }
-  }
-
-  await supabaseClient
-    .from('submissions')
-    .update({
-      status: 'accepted',
-      reviewed_by: modName,
-      reviewed_at: new Date().toISOString()
-    })
-    .eq('id', sub.id);
-
-  await logModeratorAction(
-    "APPROVE_SUBMISSION",
-    sub.player_name,
-    `Accepted completion (${sub.percentage}%) on ${levelTitle}`
-  );
-
-  alert(`Submission accepted for ${sub.player_name}!`);
-  await fetchLevelsFromDB();
-  await refreshQueueState();
-}
-
-function openManualAcceptModal(subId) {
-  const sub = pendingSubmissionsCache.find(s => s.id == subId);
-  if (!sub) return;
-
-  document.getElementById("manSubId").value = sub.id;
-  document.getElementById("manVerifier").value = sub.player_name;
-  document.getElementById("manVideo").value = sub.proof_url;
-  document.getElementById("manDevice").value = sub.device || "PC";
-
-  if (sub.type === "verification") {
-    document.getElementById("manName").value = sub.level_name || "";
-    document.getElementById("manCreator").value = sub.creator || "";
-    document.getElementById("manLength").value = sub.level_length || "1:00";
-    document.getElementById("manMinPct").value = sub.min_percentage || 100;
-    document.getElementById("manDesc").value = sub.level_description || "";
-    document.getElementById("manRank").value = "1";
-  } else {
-    const level = currentLevels.find(l => l.id == sub.level_id);
-    document.getElementById("manName").value = level ? level.name : "";
-    document.getElementById("manCreator").value = level ? level.creator : "";
-    document.getElementById("manLength").value = level ? level.length : "1:00";
-    document.getElementById("manMinPct").value = level ? level.min_percentage : 100;
-    document.getElementById("manDesc").value = level ? level.description : "";
-    document.getElementById("manRank").value = level ? level.rank : 1;
-  }
-
-  document.getElementById("manualAcceptModal").classList.add("active");
-}
-
-async function denySubmission(subId, reason) {
-  if (!isModerator) return;
-  const sub = pendingSubmissionsCache.find(s => s.id == subId);
-  if (!sub) return;
-
-  const modName = currentProfile?.username || "Moderator";
-  const levelTitle = sub.level_name || (currentLevels.find(l => l.id == sub.level_id)?.name || `Level #${sub.level_id}`);
-
-  const { error } = await supabaseClient
-    .from('submissions')
-    .update({
-      status: 'rejected',
-      rejection_reason: reason,
-      reviewed_by: modName,
-      reviewed_at: new Date().toISOString()
-    })
-    .eq('id', subId);
-
-  if (error) {
-    alert("Error rejecting submission: " + error.message);
-    return;
-  }
-
-  await logModeratorAction(
-    "DENY_SUBMISSION",
-    sub.player_name,
-    `Denied ${sub.type} on ${levelTitle}. Reason: "${reason}"`
-  );
-
-  document.getElementById("rejectModal").classList.remove("active");
-  await refreshQueueState();
-}
-
-async function logModeratorAction(action, targetName, details) {
-  try {
-    const modUsername = currentProfile?.username || "Moderator";
-    await supabaseClient.from('mod_logs').insert([{
-      mod_id: currentUser?.id,
-      mod_username: modUsername,
-      action: action,
-      target_name: targetName,
-      details: details
-    }]);
-  } catch (err) {
-    console.error("Failed to write mod log:", err);
-  }
-}
-
-async function fetchAndRenderModLogs() {
-  const tbody = document.getElementById("logsTableBody");
-  tbody.innerHTML = `<tr><td colspan="5" class="loading">Loading logs...</td></tr>`;
-
-  const { data, error } = await supabaseClient
-    .from('mod_logs')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(100);
-
-  if (error) {
-    tbody.innerHTML = `<tr><td colspan="5" style="color:var(--danger);padding:14px;">Error: ${escapeHtml(error.message)}</td></tr>`;
-    return;
-  }
-
-  if (!data || data.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" style="padding:14px;color:var(--text-muted);">No logs recorded.</td></tr>`;
-    return;
-  }
-
-  tbody.innerHTML = data.map(log => `
-    <tr>
-      <td style="font-size:0.8rem; color:var(--text-muted);">${formatDate(log.created_at)}</td>
-      <td><strong>${escapeHtml(log.mod_username)}</strong></td>
-      <td><span class="pct-badge pct-partial" style="margin-left:0;">${escapeHtml(log.action)}</span></td>
-      <td><strong>${escapeHtml(log.target_name || 'N/A')}</strong></td>
-      <td style="font-size:0.85rem;">${escapeHtml(log.details)}</td>
-    </tr>
-  `).join("");
-}
-
-function renderList() {
-  const listContainer = document.getElementById("levelList");
-  listContainer.innerHTML = "";
-
-  const query = (document.getElementById("searchInput")?.value || "").toLowerCase().trim();
-  const isMain = currentTab === "main";
-
-  let filtered = currentLevels.filter(lvl => 
-    isMain ? lvl.rank <= SETTINGS.mainListCutoff : lvl.rank > SETTINGS.mainListCutoff
-  );
-
-  if (query) {
-    filtered = filtered.filter(lvl =>
-      lvl.name.toLowerCase().includes(query) ||
-      lvl.creator.toLowerCase().includes(query) ||
-      (lvl.verifier && lvl.verifier.toLowerCase().includes(query)) ||
-      (lvl.verifier && getDisplayName(lvl.verifier).toLowerCase().includes(query))
-    );
-  }
-
-  if (filtered.length === 0) {
-    listContainer.innerHTML = `<div style="padding: 20px; color: var(--text-muted);">No levels found.</div>`;
-    document.getElementById("levelDetails").innerHTML = `<div class="loading">No level selected.</div>`;
-    return;
-  }
-
-  let selected = filtered.find(l => l.id === selectedLevelId);
-  if (!selected) {
-    selected = filtered[0];
-    selectedLevelId = selected.id;
-  }
-
-  filtered.forEach((level) => {
-    const item = document.createElement("div");
-    item.className = `level-item ${level.id === selectedLevelId ? "active" : ""}`;
-
-    const thumbUrl = getYouTubeThumbnailUrl(level.video_url);
-    const maxPts = calculatePoints(level.rank);
-    const minReq = level.min_percentage ? parseInt(level.min_percentage, 10) : 100;
-    const vDisplay = getDisplayName(level.verifier);
-
-    let pointsText = "";
-    if (maxPts > 0) {
-      if (minReq < 100) {
-        const minPts = calculatePointsForRecord(level.rank, minReq, minReq);
-        pointsText = `${minPts.toFixed(1)} &mdash; ${maxPts.toFixed(1)} pts`;
-      } else {
-        pointsText = `${maxPts.toFixed(2)} pts`;
-      }
-    } else {
-      pointsText = "0.00 pts (Extended)";
-    }
-
-    item.innerHTML = `
-      ${thumbUrl ? `<div class="item-bg-thumb" style="background-image: url('${thumbUrl}')"></div>` : ''}
-      <div class="item-overlay"></div>
-      <div class="item-content">
-        <div class="item-title-row">
-          <span class="item-rank">#${level.rank}</span>
-          <span class="item-name">${escapeHtml(level.name)}</span>
-        </div>
-        <div class="item-meta-row">
-          <span class="item-author">by ${escapeHtml(level.creator)}</span>
-          <span class="item-sep">|</span>
-          <span class="item-verifier">${escapeHtml(vDisplay || 'Unknown')}</span>
-        </div>
-        <div class="item-points-row">
-          <span class="item-points-label">${pointsText}</span>
-        </div>
-      </div>
-    `;
-
-    item.addEventListener("click", () => {
-      selectedLevelId = level.id;
-      renderList();
-    });
-
-    listContainer.appendChild(item);
-  });
-
-  renderLevelDetails(selected);
-}
-
-function renderLevelDetails(level) {
-  const container = document.getElementById("levelDetails");
-  if (!level) {
-    container.innerHTML = `<div class="loading">Select a level...</div>`;
-    return;
-  }
-
-  const points = calculatePoints(level.rank);
-  const minReq = level.min_percentage ? parseInt(level.min_percentage, 10) : 100;
-  const lengthStr = level.length || "N/A";
-  const verifierBonus = (points * SETTINGS.verifierBonusPct).toFixed(2);
-  const totalVerifierPts = (points * (1 + SETTINGS.verifierBonusPct)).toFixed(2);
-  const embedUrl = getYouTubeEmbedUrl(level.video_url);
-  const verifierDisplayName = getDisplayName(level.verifier);
-
-  container.innerHTML = `
-    <div class="level-header">
-      <div class="level-title-group">
-        <h2>#${level.rank} - ${escapeHtml(level.name)}</h2>
-        <p>
-          Created by <strong>${escapeHtml(level.creator)}</strong> | 
-          Verified by <a href="#" class="player-link" data-player="${escapeHtml(level.verifier)}"><strong>${escapeHtml(verifierDisplayName)}</strong></a>
-        </p>
-      </div>
-      <div class="points-pill">
-        ${points > 0 ? `${points.toFixed(2)} pts` : "0.00 pts (Extended)"}
-      </div>
-    </div>
-
-    <div class="video-wrapper">
-      ${embedUrl ? `<iframe src="${embedUrl}" title="Verification video" allowfullscreen></iframe>` : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);">No valid video available</div>`}
-    </div>
-
-    <div class="stats-grid">
-      <div class="stat-card">
-        <span>Level Length</span>
-        <strong>${escapeHtml(lengthStr)}</strong>
-      </div>
-      <div class="stat-card">
-        <span>List Requirement</span>
-        <strong style="color: var(--accent);">${minReq}% or better</strong>
-      </div>
-      <div class="stat-card">
-        <span>Verifier Bonus</span>
-        <strong>${points > 0 ? `+${verifierBonus} pts (${totalVerifierPts} total)` : '0 pts'}</strong>
-      </div>
-      <div class="stat-card">
-        <span>Total Records</span>
-        <strong>${level.victors ? level.victors.length : 0} Record(s)</strong>
-      </div>
-    </div>
-
-    <div class="stat-card" style="margin-bottom: 20px;">
-      <span>Description</span>
-      <strong style="font-size:0.85rem; font-weight: normal;">${escapeHtml(level.description || "No description provided.")}</strong>
-    </div>
-
-    <div class="victors-card">
-      <h3>Approved Records (&ge;${minReq}%)</h3>
-      <div class="victor-list">
-        ${level.victors && level.victors.length > 0 ? level.victors.map(v => {
-          const validProof = safeUrl(v.proof_url);
-          const pct = v.percentage || 100;
-          const vDisplayName = getDisplayName(v.player_name);
-          const hasDiff = vDisplayName.toLowerCase() !== (v.player_name || '').toLowerCase();
-          return `
-            <div class="victor-row">
-              <div>
-                <a href="#" class="player-link" data-player="${escapeHtml(v.player_name)}">
-                  <strong>${escapeHtml(vDisplayName)}</strong>
-                  ${hasDiff ? `<span class="text-muted" style="font-size:0.75rem; margin-left:4px;">(@${escapeHtml(v.player_name)})</span>` : ''}
-                </a>
-                <span class="pct-badge ${pct === 100 ? 'pct-100' : 'pct-partial'}">${pct}%</span>
-                <span class="text-muted" style="font-size:0.8rem; margin-left:6px;">(${escapeHtml(v.device || 'PC')})</span>
-              </div>
-              <div>
-                ${validProof ? `<a href="${validProof}" target="_blank" rel="noopener noreferrer">Proof</a>` : ''}
-                ${isModerator ? `<button type="button" class="delete-victor-btn" data-victor-id="${escapeHtml(v.id)}">✕</button>` : ''}
-              </div>
-            </div>
-          `;
-        }).join("") : `<p style="color: var(--text-muted); padding: 8px 0;">No approved records yet.</p>`}
-      </div>
-    </div>
-  `;
-}
-
+// SETUP FORMS & SUBMISSIONS
 function setupForms() {
   const subTypeSelect = document.getElementById("subType");
   const compGroup = document.getElementById("fieldGroupCompletion");
+  const openGroup = document.getElementById("fieldGroupOpen");
   const veriGroup = document.getElementById("fieldGroupVerification");
 
   if (subTypeSelect) {
     subTypeSelect.addEventListener("change", () => {
-      const isVeri = subTypeSelect.value === "verification";
-      compGroup.style.display = isVeri ? "none" : "block";
-      veriGroup.style.display = isVeri ? "block" : "none";
+      const val = subTypeSelect.value;
+      compGroup.style.display = val === "completion" ? "block" : "none";
+      openGroup.style.display = val === "open_run" ? "block" : "none";
+      veriGroup.style.display = val === "verification" ? "block" : "none";
 
-      document.getElementById("subNewLevelName").required = isVeri;
-      document.getElementById("subNewLevelCreator").required = isVeri;
-      document.getElementById("subNewLevelLength").required = isVeri;
+      document.getElementById("subNewLevelName").required = (val === "verification");
+      document.getElementById("subNewLevelCreator").required = (val === "verification");
+      document.getElementById("subNewGdId").required = (val === "verification");
+      document.getElementById("subNewLevelLength").required = (val === "verification");
+
+      if (val === "open_run") {
+        updateOpenWrBanner();
+      }
     });
   }
+
+  document.getElementById("subOpenSelect")?.addEventListener("change", updateOpenWrBanner);
 
   // 1. Submit Record to Queue Form
   const recordSubForm = document.getElementById("recordSubmissionForm");
@@ -1294,7 +1290,7 @@ function setupForms() {
       const submitBtn = document.getElementById("submitRecordBtn");
 
       if (!currentUser) {
-        alert("Please sign in with Discord to submit a record.");
+        alert("Please sign in with Discord to submit records.");
         return;
       }
 
@@ -1337,21 +1333,50 @@ function setupForms() {
         status: 'pending'
       };
 
-      if (type === "verification") {
-        payload.level_id = null;
+      if (type === "open_run") {
+        const openId = parseInt(document.getElementById("subOpenSelect").value, 10);
+        const openLvl = currentOpenLevels.find(l => l.id == openId);
+        if (!openLvl) {
+          alert("Please select a valid open verification level.");
+          return;
+        }
+
+        const pct = parseInt(document.getElementById("subOpenPercentage").value, 10);
+        const currentWr = openLvl.best_progress || 0;
+
+        if (pct < 100 && pct <= currentWr) {
+          alert(`Record Rejected: Your run (${pct}%) must surpass the current World Record of ${currentWr}%.`);
+          return;
+        }
+
+        payload.open_level_id = openId;
+        payload.percentage = pct;
+        payload.level_name = openLvl.name;
+        payload.creator = openLvl.creator;
+        payload.gd_id = openLvl.gd_id;
+        payload.approx_rank = openLvl.approx_rank;
+      } else if (type === "verification") {
+        const gdId = document.getElementById("subNewGdId").value.trim();
+        if (!gdId) {
+          alert("A valid Geometry Dash Level ID is required.");
+          return;
+        }
         payload.percentage = 100;
         payload.level_name = document.getElementById("subNewLevelName").value.trim();
         payload.creator = document.getElementById("subNewLevelCreator").value.trim();
+        payload.gd_id = gdId;
+        payload.approx_rank = document.getElementById("subNewApproxRank").value.trim() || 'Unassigned';
         payload.level_length = document.getElementById("subNewLevelLength").value.trim();
         payload.min_percentage = parseInt(document.getElementById("subNewLevelMinPct").value, 10) || 100;
         payload.level_description = document.getElementById("subNewLevelDesc").value.trim();
       } else {
         payload.level_id = parseInt(document.getElementById("subLevelSelect").value, 10);
         payload.percentage = parseInt(document.getElementById("subPercentage").value, 10);
+        const selectedLvl = currentLevels.find(l => l.id == payload.level_id);
+        payload.gd_id = selectedLvl ? selectedLvl.gd_id : '';
       }
 
       submitBtn.disabled = true;
-      const originalText = submitBtn.textContent;
       submitBtn.textContent = "Submitting to Queue...";
 
       try {
@@ -1368,155 +1393,196 @@ function setupForms() {
         }
       } finally {
         submitBtn.disabled = false;
-        submitBtn.textContent = originalText;
+        submitBtn.textContent = "Send Submission to Queue";
       }
     });
   }
 
-  // 2. Manual Accept Submission Form
-  const manualForm = document.getElementById("manualAcceptForm");
-  if (manualForm) {
-    manualForm.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      if (!isModerator) return;
+  // 2. Add Open Verification Level Form (Admin)
+  document.getElementById("addOpenLevelForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!isModerator) return;
 
-      const subId = document.getElementById("manSubId").value;
-      const rank = parseInt(document.getElementById("manRank").value, 10);
-      const name = document.getElementById("manName").value.trim();
-      const creator = document.getElementById("manCreator").value.trim();
-      const verifier = document.getElementById("manVerifier").value.trim();
-      const length = document.getElementById("manLength").value.trim();
-      const minPct = parseInt(document.getElementById("manMinPct").value, 10) || 100;
-      const video = safeUrl(document.getElementById("manVideo").value.trim());
-      const device = document.getElementById("manDevice").value.trim();
-      const desc = document.getElementById("manDesc").value.trim();
+    const name = document.getElementById("openName").value.trim();
+    const creator = document.getElementById("openCreator").value.trim();
+    const gdId = document.getElementById("openGdId").value.trim();
+    const approxRank = document.getElementById("openApproxRank").value.trim();
+    const length = document.getElementById("openLength").value.trim();
+    const video = safeUrl(document.getElementById("openVideo").value.trim());
+    const desc = document.getElementById("openDesc").value.trim();
 
-      if (!video) {
-        alert("Please enter a valid HTTP/HTTPS video URL.");
+    if (!gdId) {
+      alert("A valid Geometry Dash Level ID is required.");
+      return;
+    }
+
+    const { error } = await supabaseClient.from('open_levels').insert([{
+      name, creator, gd_id: gdId, approx_rank: approxRank, length, video_url: video, description: desc
+    }]);
+
+    if (error) {
+      alert("Error adding open level: " + error.message);
+    } else {
+      await logModeratorAction("ADD_OPEN_LEVEL", name, `Added open verification level (GD ID: ${gdId}, Est: ${approxRank})`);
+      alert(`Open level "${name}" published!`);
+      document.getElementById("addOpenLevelForm").reset();
+      await fetchOpenLevelsFromDB();
+      switchTab("open");
+    }
+  });
+
+  // 3. Direct Level Add (Admin)
+  document.getElementById("addLevelForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!isModerator) return;
+
+    const rank = parseInt(document.getElementById("levelRank").value, 10);
+    const name = document.getElementById("levelName").value.trim();
+    const gdId = document.getElementById("levelGdId").value.trim();
+    const length = document.getElementById("levelLength").value.trim();
+    const minPct = parseInt(document.getElementById("levelMinPct").value, 10) || 100;
+    const creator = document.getElementById("levelCreator").value.trim();
+    const verifier = document.getElementById("levelVerifier").value.trim();
+    const validatedVideo = safeUrl(document.getElementById("levelVideo").value.trim());
+    const description = document.getElementById("levelDescription").value.trim();
+
+    if (!gdId) {
+      alert("Geometry Dash Level ID is mandatory.");
+      return;
+    }
+
+    if (!validatedVideo) {
+      alert("Please enter a valid HTTP/HTTPS video URL.");
+      return;
+    }
+
+    const rankTaken = currentLevels.some(l => l.rank === rank);
+    if (rankTaken) {
+      if (!confirm(`Rank #${rank} is occupied. Shift subsequent levels down by 1?`)) return;
+      const { error: shiftErr } = await supabaseClient.rpc('shift_levels_for_insertion', { new_rank: rank });
+      if (shiftErr) {
+        alert("Error shifting levels: " + shiftErr.message);
+        return;
+      }
+    }
+
+    const { error: insertError } = await supabaseClient.from('levels').insert([{ 
+      rank, name, gd_id: gdId, length, min_percentage: minPct, creator, verifier, video_url: validatedVideo, description 
+    }]);
+
+    if (insertError) alert("Error adding level: " + insertError.message);
+    else {
+      await logModeratorAction("ADD_LEVEL", name, `Placed new level at #${rank} [GD ID: ${gdId}]`);
+      alert(`Level "${name}" successfully placed at #${rank}!`);
+      document.getElementById("addLevelForm").reset();
+      await fetchLevelsFromDB();
+    }
+  });
+
+  // 4. Manual Accept / Convert Submission Form
+  document.getElementById("manualAcceptForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!isModerator) return;
+
+    const subId = document.getElementById("manSubId").value;
+    const openLevelId = document.getElementById("manOpenLevelId").value;
+    const rank = parseInt(document.getElementById("manRank").value, 10);
+    const name = document.getElementById("manName").value.trim();
+    const gdId = document.getElementById("manGdId").value.trim();
+    const creator = document.getElementById("manCreator").value.trim();
+    const verifier = document.getElementById("manVerifier").value.trim();
+    const length = document.getElementById("manLength").value.trim();
+    const minPct = parseInt(document.getElementById("manMinPct").value, 10) || 100;
+    const video = safeUrl(document.getElementById("manVideo").value.trim());
+    const device = document.getElementById("manDevice").value.trim();
+    const desc = document.getElementById("manDesc").value.trim();
+
+    if (!gdId) {
+      alert("A valid Geometry Dash Level ID is mandatory.");
+      return;
+    }
+
+    if (!video) {
+      alert("Please enter a valid HTTP/HTTPS video URL.");
+      return;
+    }
+
+    const submitBtn = document.querySelector("#manualAcceptForm button[type='submit']");
+    submitBtn.disabled = true;
+
+    try {
+      const rankTaken = currentLevels.some(l => l.rank === rank);
+      if (rankTaken) {
+        if (!confirm(`Rank #${rank} is occupied. Shift subsequent levels down by 1?`)) {
+          submitBtn.disabled = false;
+          return;
+        }
+        await supabaseClient.rpc('shift_levels_for_insertion', { new_rank: rank });
+      }
+
+      // Insert new level on main list
+      const { data: newLevel, error: lvlErr } = await supabaseClient
+        .from('levels')
+        .insert([{
+          rank, name, gd_id: gdId, creator, verifier, length, min_percentage: minPct, video_url: video, description: desc
+        }])
+        .select()
+        .single();
+
+      if (lvlErr) {
+        alert("Error publishing level: " + lvlErr.message);
+        submitBtn.disabled = false;
         return;
       }
 
-      const submitBtn = manualForm.querySelector("button[type='submit']");
-      submitBtn.disabled = true;
+      // Add Verifier Record
+      await supabaseClient.from('victors').insert([{
+        level_id: newLevel.id,
+        player_name: verifier,
+        percentage: 100,
+        proof_url: video,
+        device: device
+      }]);
 
-      try {
-        const sub = pendingSubmissionsCache.find(s => s.id == subId);
-        const rankTaken = currentLevels.some(l => l.rank === rank && l.id !== sub?.level_id);
-
-        if (rankTaken) {
-          if (!confirm(`Rank #${rank} is occupied. Shift subsequent levels down by 1?`)) {
-            submitBtn.disabled = false;
-            return;
-          }
-          const { error: shiftErr } = await supabaseClient.rpc('shift_levels_for_insertion', { new_rank: rank });
-          if (shiftErr) {
-            alert("Error shifting levels: " + shiftErr.message);
-            submitBtn.disabled = false;
-            return;
-          }
-        }
-
-        let targetLevelId = sub?.level_id;
-
-        if (!targetLevelId || sub?.type === 'verification') {
-          const { data: newLevel, error: lvlErr } = await supabaseClient
-            .from('levels')
-            .insert([{
-              rank: rank,
-              name: name,
-              creator: creator,
-              verifier: verifier,
-              length: length,
-              min_percentage: minPct,
-              video_url: video,
-              description: desc
-            }])
-            .select()
-            .single();
-
-          if (lvlErr) {
-            alert("Error publishing level: " + lvlErr.message);
-            submitBtn.disabled = false;
-            return;
-          }
-          targetLevelId = newLevel.id;
-        } else {
-          await supabaseClient
-            .from('levels')
-            .update({
-              rank: rank,
-              name: name,
-              creator: creator,
-              verifier: verifier,
-              length: length,
-              min_percentage: minPct,
-              video_url: video,
-              description: desc
-            })
-            .eq('id', targetLevelId);
-        }
-
-        const pctToRecord = sub ? sub.percentage : 100;
-        const { data: existingVictor } = await supabaseClient
-          .from('victors')
-          .select('id, percentage')
-          .eq('level_id', targetLevelId)
-          .ilike('player_name', verifier.trim())
-          .maybeSingle();
-
-        if (existingVictor) {
-          if (pctToRecord > existingVictor.percentage) {
-            await supabaseClient.from('victors').update({
-              percentage: pctToRecord,
-              proof_url: video,
-              device: device,
-              user_id: sub ? sub.user_id : null
-            }).eq('id', existingVictor.id);
-          }
-        } else {
-          await supabaseClient.from('victors').insert([{
-            level_id: targetLevelId,
-            player_name: verifier,
-            user_id: sub ? sub.user_id : null,
-            percentage: pctToRecord,
-            proof_url: video,
-            device: device
-          }]);
-        }
-
-        if (sub) {
-          const modName = currentProfile?.username || "Moderator";
-          await supabaseClient
-            .from('submissions')
-            .update({
-              status: 'accepted',
-              reviewed_by: modName,
-              reviewed_at: new Date().toISOString()
-            })
-            .eq('id', sub.id);
-        }
-
-        await logModeratorAction(
-          "MANUAL_ACCEPT_LEVEL",
-          name,
-          `Moderator manual-accepted level at #${rank} verified by ${verifier}`
-        );
-
-        alert(`Level "${name}" successfully placed at #${rank}!`);
-        document.getElementById("manualAcceptModal").classList.remove("active");
-        await fetchLevelsFromDB();
-        await refreshQueueState();
-      } finally {
-        submitBtn.disabled = false;
+      // If this was converted from an open level, remove it from open_levels
+      if (openLevelId) {
+        await supabaseClient.from('open_levels').delete().eq('id', openLevelId);
       }
-    });
-  }
 
-  // 3. Update Display Name Form
+      // Mark submission accepted if linked
+      if (subId) {
+        const modName = currentProfile?.username || "Moderator";
+        await supabaseClient
+          .from('submissions')
+          .update({
+            status: 'accepted',
+            reviewed_by: modName,
+            reviewed_at: new Date().toISOString()
+          })
+          .eq('id', subId);
+      }
+
+      await logModeratorAction(
+        "CONVERT_LEVEL_TO_LIST",
+        name,
+        `Placed/Converted level at #${rank} [GD ID: ${gdId}] verified by ${verifier}`
+      );
+
+      alert(`Level "${name}" successfully placed at #${rank} on ANL!`);
+      document.getElementById("manualAcceptModal").classList.remove("active");
+      await fetchLevelsFromDB();
+      await fetchOpenLevelsFromDB();
+      await refreshQueueState();
+      switchTab("main");
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+
+  // 5. Update Display Name Form
   document.getElementById("updateDisplayNameForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!currentUser) return;
-
     const newDisplayName = document.getElementById("updateDisplayNameInput").value.trim();
 
     const { error } = await supabaseClient
@@ -1534,7 +1600,7 @@ function setupForms() {
           display_name: newDisplayName || null
         };
       }
-      alert(newDisplayName ? `Display name updated to "${newDisplayName}"!` : "Display name reset to username.");
+      alert("Display name updated!");
       setLoggedInState();
       renderProfile();
       renderList();
@@ -1548,7 +1614,7 @@ function setupForms() {
     document.getElementById("updateDisplayNameForm")?.dispatchEvent(new Event('submit'));
   });
 
-  // 4. Update Bio
+  // 6. Update Bio Form
   document.getElementById("updateBioForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!currentUser) return;
@@ -1562,7 +1628,7 @@ function setupForms() {
     }
   });
 
-  // 5. Direct Victor Add
+  // 7. Direct Victor Add
   document.getElementById("addVictorForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!isModerator) return;
@@ -1570,39 +1636,11 @@ function setupForms() {
     const levelId = document.getElementById("victorLevelSelect").value;
     const playerName = document.getElementById("victorPlayerName").value.trim();
     const percentage = parseInt(document.getElementById("victorPercentage").value, 10) || 100;
-    const rawProof = document.getElementById("victorProofUrl").value.trim();
-    const validatedProof = safeUrl(rawProof);
+    const validatedProof = safeUrl(document.getElementById("victorProofUrl").value.trim());
     const device = document.getElementById("victorDevice").value.trim();
 
     if (!validatedProof) {
       alert("Please enter a valid proof URL.");
-      return;
-    }
-
-    const { data: existingVictor } = await supabaseClient
-      .from('victors')
-      .select('id, percentage')
-      .eq('level_id', levelId)
-      .ilike('player_name', playerName)
-      .maybeSingle();
-
-    if (existingVictor) {
-      if (percentage > existingVictor.percentage) {
-        const { error: upErr } = await supabaseClient
-          .from('victors')
-          .update({ percentage: percentage, proof_url: validatedProof, device: device })
-          .eq('id', existingVictor.id);
-
-        if (upErr) alert("Database error: " + upErr.message);
-        else {
-          await logModeratorAction("DIRECT_RECORD_UPGRADE", playerName, `Upgraded to ${percentage}% on level ID ${levelId}`);
-          alert(`Record upgraded for ${playerName}!`);
-          document.getElementById("addVictorForm").reset();
-          await fetchLevelsFromDB();
-        }
-      } else {
-        alert(`Player already has an equal or better record (${existingVictor.percentage}%) on this level.`);
-      }
       return;
     }
 
@@ -1618,51 +1656,144 @@ function setupForms() {
       await fetchLevelsFromDB();
     }
   });
+}
 
-  // 6. Direct Level Add
-  document.getElementById("addLevelForm")?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    if (!isModerator) return;
+function openManualAcceptModal(subId) {
+  const sub = pendingSubmissionsCache.find(s => s.id == subId);
+  if (!sub) return;
 
-    const rank = parseInt(document.getElementById("levelRank").value, 10);
-    const name = document.getElementById("levelName").value.trim();
-    const length = document.getElementById("levelLength").value.trim();
-    const minPct = parseInt(document.getElementById("levelMinPct").value, 10) || 100;
-    const creator = document.getElementById("levelCreator").value.trim();
-    const verifier = document.getElementById("levelVerifier").value.trim();
-    const rawVideo = document.getElementById("levelVideo").value.trim();
-    const validatedVideo = safeUrl(rawVideo);
-    const description = document.getElementById("levelDescription").value.trim();
+  document.getElementById("manSubId").value = sub.id;
+  document.getElementById("manOpenLevelId").value = sub.open_level_id || "";
+  document.getElementById("manVerifier").value = sub.player_name;
+  document.getElementById("manVideo").value = sub.proof_url;
+  document.getElementById("manDevice").value = sub.device || "PC";
+  document.getElementById("manName").value = sub.level_name || "";
+  document.getElementById("manGdId").value = sub.gd_id || "";
+  document.getElementById("manCreator").value = sub.creator || "";
+  document.getElementById("manLength").value = sub.level_length || "1:00";
+  document.getElementById("manMinPct").value = sub.min_percentage || 100;
+  document.getElementById("manDesc").value = sub.level_description || "";
+  document.getElementById("manRank").value = "1";
 
-    if (!validatedVideo) {
-      alert("Please enter a valid HTTP/HTTPS video URL.");
-      return;
+  document.getElementById("manualAcceptModal").classList.add("active");
+}
+
+function openManualAcceptFromOpenLevel(openId) {
+  const openLvl = currentOpenLevels.find(l => l.id == openId);
+  if (!openLvl) return;
+
+  document.getElementById("manSubId").value = "";
+  document.getElementById("manOpenLevelId").value = openLvl.id;
+  document.getElementById("manVerifier").value = openLvl.best_holder || "";
+  document.getElementById("manVideo").value = openLvl.best_proof || openLvl.video_url || "";
+  document.getElementById("manDevice").value = "PC";
+  document.getElementById("manName").value = openLvl.name;
+  document.getElementById("manGdId").value = openLvl.gd_id;
+  document.getElementById("manCreator").value = openLvl.creator;
+  document.getElementById("manLength").value = openLvl.length || "1:00";
+  document.getElementById("manMinPct").value = 100;
+  document.getElementById("manDesc").value = openLvl.description || "";
+  document.getElementById("manRank").value = "1";
+
+  document.getElementById("manualAcceptModal").classList.add("active");
+}
+
+async function approveSubmission(subId) {
+  if (!isModerator) return;
+  const sub = pendingSubmissionsCache.find(s => s.id == subId);
+  if (!sub) return;
+
+  const modName = currentProfile?.username || "Moderator";
+
+  // Case 1: Open verification progress run (< 100%)
+  if (sub.type === "open_run" && sub.percentage < 100 && sub.open_level_id) {
+    if (!confirm(`Approve new World Record (${sub.percentage}%) for ${sub.player_name} on open level?`)) return;
+
+    await supabaseClient
+      .from('open_levels')
+      .update({
+        best_progress: sub.percentage,
+        best_holder: sub.player_name,
+        best_proof: sub.proof_url
+      })
+      .eq('id', sub.open_level_id);
+
+    await supabaseClient
+      .from('submissions')
+      .update({ status: 'accepted', reviewed_by: modName, reviewed_at: new Date().toISOString() })
+      .eq('id', sub.id);
+
+    await logModeratorAction("APPROVE_OPEN_WR", sub.player_name, `Approved new WR ${sub.percentage}% on ${sub.level_name}`);
+    alert(`Open WR updated for ${sub.player_name}!`);
+    await fetchOpenLevelsFromDB();
+    await refreshQueueState();
+    return;
+  }
+
+  // Case 2: Completion of Open Level (100%) -> prompt manual accept to rank on main list
+  if (sub.type === "open_run" && sub.percentage === 100) {
+    openManualAcceptModal(sub.id);
+    return;
+  }
+
+  // Case 3: Normal completion on list level
+  const level = currentLevels.find(l => l.id == sub.level_id);
+  const levelTitle = level ? `#${level.rank} - ${level.name}` : `Level #${sub.level_id}`;
+
+  if (!confirm(`Approve record for ${sub.player_name} on ${levelTitle}?`)) return;
+
+  const { data: existingVictor } = await supabaseClient
+    .from('victors')
+    .select('id, percentage')
+    .eq('level_id', sub.level_id)
+    .ilike('player_name', sub.player_name.trim())
+    .maybeSingle();
+
+  if (existingVictor) {
+    if (sub.percentage > existingVictor.percentage) {
+      await supabaseClient
+        .from('victors')
+        .update({
+          percentage: sub.percentage,
+          proof_url: sub.proof_url,
+          device: sub.device,
+          user_id: sub.user_id
+        })
+        .eq('id', existingVictor.id);
     }
+  } else {
+    await supabaseClient
+      .from('victors')
+      .insert([{
+        level_id: sub.level_id,
+        player_name: sub.player_name,
+        user_id: sub.user_id,
+        percentage: sub.percentage,
+        proof_url: sub.proof_url,
+        device: sub.device
+      }]);
+  }
 
-    const rankTaken = currentLevels.some(l => l.rank === rank);
-    if (rankTaken) {
-      if (!confirm(`Rank #${rank} is occupied. Shift subsequent levels down by 1?`)) {
-        return;
-      }
-      const { error: shiftErr } = await supabaseClient.rpc('shift_levels_for_insertion', { new_rank: rank });
-      if (shiftErr) {
-        alert("Error shifting levels: " + shiftErr.message);
-        return;
-      }
-    }
+  await supabaseClient
+    .from('submissions')
+    .update({ status: 'accepted', reviewed_by: modName, reviewed_at: new Date().toISOString() })
+    .eq('id', sub.id);
 
-    const { error: insertError } = await supabaseClient.from('levels').insert([{ 
-      rank, name, length, min_percentage: minPct, creator, verifier, video_url: validatedVideo, description 
-    }]);
+  await logModeratorAction("APPROVE_SUBMISSION", sub.player_name, `Accepted completion (${sub.percentage}%) on ${levelTitle}`);
+  alert(`Submission accepted for ${sub.player_name}!`);
+  await fetchLevelsFromDB();
+  await refreshQueueState();
+}
 
-    if (insertError) alert("Error adding level: " + insertError.message);
-    else {
-      await logModeratorAction("ADD_LEVEL", name, `Placed new level at #${rank} created by ${creator}`);
-      alert(`Level ${name} successfully placed at #${rank}!`);
-      document.getElementById("addLevelForm").reset();
-      await fetchLevelsFromDB();
-    }
-  });
+async function deleteOpenLevel(openId) {
+  if (!isModerator) return;
+  if (!confirm("Are you sure you want to delete this open verification level?")) return;
+  const { error } = await supabaseClient.from('open_levels').delete().eq('id', openId);
+  if (error) alert("Error deleting open level: " + error.message);
+  else {
+    await logModeratorAction("DELETE_OPEN_LEVEL", "ID: " + openId, "Removed open verification level");
+    await fetchOpenLevelsFromDB();
+  }
 }
 
 async function deleteVictor(victorId) {
@@ -1676,6 +1807,223 @@ async function deleteVictor(victorId) {
   }
 }
 
+// QUEUE RENDER
+function renderQueue() {
+  const container = document.getElementById("queueItemsList");
+  if (!isModerator) {
+    container.innerHTML = `<p class="text-muted">Unauthorized.</p>`;
+    return;
+  }
+
+  const typeFilter = document.getElementById("queueTypeFilter")?.value || "all";
+  const orderFilter = document.getElementById("queueOrderFilter")?.value || "asc";
+
+  let pending = pendingSubmissionsCache.filter(s => s.status === 'pending');
+
+  if (typeFilter !== "all") {
+    pending = pending.filter(s => s.type === typeFilter);
+  }
+
+  pending.sort((a, b) => {
+    const da = new Date(a.created_at).getTime();
+    const db = new Date(b.created_at).getTime();
+    return orderFilter === "asc" ? da - db : db - da;
+  });
+
+  if (pending.length === 0) {
+    container.innerHTML = `<div class="loading">No pending submissions in queue. Clean inbox! 🎉</div>`;
+    return;
+  }
+
+  container.innerHTML = pending.map((sub, index) => {
+    let levelTitle = "";
+    let isOpenRun = sub.type === "open_run";
+    let isNewVerification = sub.type === "verification";
+
+    if (isOpenRun) {
+      levelTitle = `🔓 [Open Run] ${sub.level_name || 'Open Level'} (GD ID: ${sub.gd_id || 'N/A'})`;
+    } else if (isNewVerification) {
+      levelTitle = `⭐ [New Level] ${sub.level_name || 'Untitled'} (GD ID: ${sub.gd_id || 'N/A'})`;
+    } else {
+      const level = currentLevels.find(l => l.id == sub.level_id);
+      levelTitle = level ? `#${level.rank} - ${level.name} (GD ID: ${level.gd_id || 'N/A'})` : `Level ID: ${sub.level_id}`;
+    }
+
+    const proofLink = safeUrl(sub.proof_url);
+    const rawLink = safeUrl(sub.raw_footage_url);
+    const playerDisplayName = getDisplayName(sub.player_name);
+
+    return `
+      <div class="queue-card">
+        <div class="queue-card-header">
+          <div>
+            <span class="queue-pos-indicator">#${index + 1} in Queue</span>
+            <strong style="margin-left: 8px; font-size: 1rem;">${escapeHtml(levelTitle)}</strong>
+            <span class="pct-badge ${sub.percentage === 100 ? 'pct-100' : 'pct-partial'}">${sub.percentage}%</span>
+          </div>
+          <span class="text-muted" style="font-size: 0.8rem;">Submitted: ${formatDate(sub.created_at)}</span>
+        </div>
+
+        <div class="queue-grid">
+          <div>
+            <span class="text-muted">Player:</span>
+            <strong>${escapeHtml(playerDisplayName)}</strong>
+          </div>
+          <div>
+            <span class="text-muted">Type:</span>
+            <strong style="text-transform: capitalize; color: var(--accent);">${escapeHtml(sub.type)}</strong>
+          </div>
+          <div>
+            <span class="text-muted">GD Level ID:</span>
+            <strong>${escapeHtml(sub.gd_id || 'N/A')}</strong>
+          </div>
+          <div>
+            <span class="text-muted">Device:</span>
+            <strong>${escapeHtml(sub.device || 'PC')}</strong>
+          </div>
+          <div>
+            <span class="text-muted">Proof Footage:</span>
+            ${proofLink ? `<a href="${proofLink}" target="_blank" rel="noopener noreferrer">Watch Video ↗</a>` : 'None'}
+          </div>
+          ${rawLink ? `
+            <div>
+              <span class="text-muted">Raw Stream:</span>
+              <a href="${rawLink}" target="_blank" rel="noopener noreferrer">Inspect Raw ↗</a>
+            </div>
+          ` : ''}
+        </div>
+
+        <div class="queue-actions">
+          <button type="button" class="btn-deny deny-sub-btn" data-sub-id="${sub.id}">✕ Deny</button>
+          ${isNewVerification || (isOpenRun && sub.percentage === 100) ? `
+            <button type="button" class="btn-manual manual-accept-sub-btn" data-sub-id="${sub.id}">⭐ Place / Convert to List</button>
+          ` : `
+            <button type="button" class="btn-approve approve-sub-btn" data-sub-id="${sub.id}">✓ Quick Accept</button>
+          `}
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+// AUDIT MOD LOGS
+async function logModeratorAction(action, targetName, details) {
+  try {
+    const modUsername = currentProfile?.username || "Moderator";
+    await supabaseClient.from('mod_logs').insert([{
+      mod_id: currentUser?.id,
+      mod_username: modUsername,
+      action: action,
+      target_name: targetName,
+      details: details
+    }]);
+  } catch (err) {
+    console.error("Failed to write mod log:", err);
+  }
+}
+
+async function fetchAndRenderModLogs() {
+  const tbody = document.getElementById("logsTableBody");
+  tbody.innerHTML = `<tr><td colspan="5" class="loading">Loading logs...</td></tr>`;
+
+  const { data, error } = await supabaseClient
+    .from('mod_logs')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(100);
+
+  if (error || !data || data.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" style="padding:14px;color:var(--text-muted);">No logs recorded.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = data.map(log => `
+    <tr>
+      <td style="font-size:0.8rem; color:var(--text-muted);">${formatDate(log.created_at)}</td>
+      <td><strong>${escapeHtml(log.mod_username)}</strong></td>
+      <td><span class="pct-badge pct-partial" style="margin-left:0;">${escapeHtml(log.action)}</span></td>
+      <td><strong>${escapeHtml(log.target_name || 'N/A')}</strong></td>
+      <td style="font-size:0.85rem;">${escapeHtml(log.details)}</td>
+    </tr>
+  `).join("");
+}
+
+function setupNavigation() {
+  const navToggle = document.getElementById("navToggle");
+  const navMenu = document.getElementById("navMenuWrapper");
+  if (navToggle) {
+    navToggle.addEventListener("click", () => navMenu.classList.toggle("active"));
+  }
+
+  const modDropdownBtn = document.getElementById("modDropdownBtn");
+  const modContainer = document.getElementById("modMenuDropdown");
+  if (modDropdownBtn) {
+    modDropdownBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      modContainer.classList.toggle("open");
+    });
+    document.addEventListener("click", () => modContainer.classList.remove("open"));
+  }
+
+  document.querySelectorAll(".nav-btn, .mod-dropdown-item").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const tab = btn.dataset.tab;
+      if (!tab) return;
+      if (navMenu) navMenu.classList.remove("active");
+      if (modContainer) modContainer.classList.remove("open");
+      switchTab(tab);
+    });
+  });
+
+  const subDropdownToggle = document.getElementById("submissionsDropdownToggle");
+  if (subDropdownToggle) {
+    subDropdownToggle.addEventListener("click", () => {
+      const content = document.getElementById("submissionsDropdownContent");
+      const isOpen = content.style.display !== "none";
+      content.style.display = isOpen ? "none" : "block";
+      subDropdownToggle.setAttribute("aria-expanded", isOpen ? "false" : "true");
+    });
+  }
+
+  document.getElementById("queueTypeFilter")?.addEventListener("change", renderQueue);
+  document.getElementById("queueOrderFilter")?.addEventListener("change", renderQueue);
+}
+
+function setupSearch() {
+  document.getElementById("searchInput")?.addEventListener("input", () => renderList());
+  document.getElementById("openSearchInput")?.addEventListener("input", () => renderOpenList());
+}
+
+function setupAuth() {
+  document.getElementById("firstTimeDiscordForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const playerName = document.getElementById("discordPlayerNameInput").value.trim();
+    const errorEl = document.getElementById("discordPlayerNameError");
+
+    if (!isValidUsername(playerName)) {
+      errorEl.textContent = "Player name must be 3-20 letters, numbers, or underscores.";
+      return;
+    }
+
+    const { error } = await supabaseClient.from('profiles').insert([{
+      id: currentUser.id,
+      username: playerName,
+      display_name: playerName,
+      bio: "Ascent Nation list player",
+      is_mod: false
+    }]);
+
+    if (error) {
+      errorEl.textContent = "Name already taken by another player. Please pick another: " + error.message;
+      return;
+    }
+
+    document.getElementById("firstTimeDiscordModal").classList.remove("active");
+    location.reload();
+  });
+}
+
+// MODAL WINDOWS & SANCTIONS (BAN / TIMEOUT / UNBAN RESTORED)
 function setupModModals() {
   const rejectModal = document.getElementById("rejectModal");
   document.getElementById("closeRejectModal").onclick = () => rejectModal.classList.remove("active");
@@ -1685,7 +2033,17 @@ function setupModModals() {
   document.getElementById("confirmRejectBtn").onclick = async () => {
     const reason = document.getElementById("rejectCustomReason").value.trim();
     if (!reason) { alert("Rejection reason required."); return; }
-    if (currentRejectSubmissionId) await denySubmission(currentRejectSubmissionId, reason);
+    if (currentRejectSubmissionId) {
+      const sub = pendingSubmissionsCache.find(s => s.id == currentRejectSubmissionId);
+      const modName = currentProfile?.username || "Moderator";
+      await supabaseClient
+        .from('submissions')
+        .update({ status: 'rejected', rejection_reason: reason, reviewed_by: modName, reviewed_at: new Date().toISOString() })
+        .eq('id', currentRejectSubmissionId);
+      await logModeratorAction("DENY_SUBMISSION", sub?.player_name, `Denied. Reason: "${reason}"`);
+      rejectModal.classList.remove("active");
+      await refreshQueueState();
+    }
   };
 
   document.getElementById("closeManualAcceptModal").onclick = () => {
@@ -1781,6 +2139,7 @@ function setupModModals() {
     renderProfile();
   });
 
+  // Unban Button
   document.getElementById("unbanPlayerBtn")?.addEventListener("click", async () => {
     if (!targetBanProfile || !isModerator) return;
     if (!confirm(`Remove ban sanctions from ${targetBanProfile.username}?`)) return;
@@ -1791,126 +2150,5 @@ function setupModModals() {
     await logModeratorAction("UNBAN_PLAYER", targetBanProfile.username, "Lifted ban and sanctions.");
     alert(`${targetBanProfile.username} is unbanned.`);
     renderProfile();
-  });
-}
-
-function setupNavigation() {
-  const navToggle = document.getElementById("navToggle");
-  const navMenu = document.getElementById("navMenuWrapper");
-  if (navToggle) {
-    navToggle.addEventListener("click", () => {
-      navMenu.classList.toggle("active");
-    });
-  }
-
-  const modDropdownBtn = document.getElementById("modDropdownBtn");
-  const modContainer = document.getElementById("modMenuDropdown");
-  if (modDropdownBtn) {
-    modDropdownBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      modContainer.classList.toggle("open");
-    });
-    document.addEventListener("click", () => {
-      modContainer.classList.remove("open");
-    });
-  }
-
-  const allNavButtons = document.querySelectorAll(".nav-btn, .mod-dropdown-item");
-  allNavButtons.forEach(btn => {
-    btn.addEventListener("click", () => {
-      const tab = btn.dataset.tab;
-      if (!tab) return;
-
-      document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
-      if (btn.classList.contains("nav-btn")) btn.classList.add("active");
-
-      if (navMenu) navMenu.classList.remove("active");
-      if (modContainer) modContainer.classList.remove("open");
-
-      currentTab = tab;
-      document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
-
-      if (tab === "main" || tab === "extended") {
-        document.getElementById("listView").classList.add("active");
-        renderList();
-      } else if (tab === "leaderboard") {
-        document.getElementById("leaderboardView").classList.add("active");
-        renderLeaderboard();
-      } else if (tab === "submit") {
-        document.getElementById("submitView").classList.add("active");
-        checkSubmissionRestrictions();
-      } else if (tab === "profile") {
-        activeProfilePlayer = null;
-        document.getElementById("profileView").classList.add("active");
-        renderProfile();
-      } else if (tab === "rules") {
-        document.getElementById("rulesView").classList.add("active");
-      } else if (tab === "about") {
-        document.getElementById("aboutView").classList.add("active");
-      } else if (tab === "queue") {
-        document.getElementById("queueView").classList.add("active");
-        renderQueue();
-      } else if (tab === "admin") {
-        document.getElementById("adminView").classList.add("active");
-      } else if (tab === "logs") {
-        document.getElementById("logsView").classList.add("active");
-        fetchAndRenderModLogs();
-      }
-    });
-  });
-
-  const subDropdownToggle = document.getElementById("submissionsDropdownToggle");
-  if (subDropdownToggle) {
-    subDropdownToggle.addEventListener("click", () => {
-      const content = document.getElementById("submissionsDropdownContent");
-      const isOpen = content.style.display !== "none";
-
-      if (isOpen) {
-        content.style.display = "none";
-        subDropdownToggle.setAttribute("aria-expanded", "false");
-      } else {
-        content.style.display = "block";
-        subDropdownToggle.setAttribute("aria-expanded", "true");
-      }
-    });
-  }
-
-  document.getElementById("queueTypeFilter")?.addEventListener("change", renderQueue);
-  document.getElementById("queueOrderFilter")?.addEventListener("change", renderQueue);
-}
-
-function setupSearch() {
-  const input = document.getElementById("searchInput");
-  input?.addEventListener("input", () => renderList());
-}
-
-// Discord Authentication & Onboarding
-function setupAuth() {
-  // First-Time Discord Profile Setup Form
-  document.getElementById("firstTimeDiscordForm")?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const playerName = document.getElementById("discordPlayerNameInput").value.trim();
-    const errorEl = document.getElementById("discordPlayerNameError");
-
-    if (!isValidUsername(playerName)) {
-      errorEl.textContent = "Player name must be 3-20 letters, numbers, or underscores.";
-      return;
-    }
-
-    const { error } = await supabaseClient.from('profiles').insert([{
-      id: currentUser.id,
-      username: playerName,
-      display_name: playerName,
-      bio: "Ascent Nation list player",
-      is_mod: false
-    }]);
-
-    if (error) {
-      errorEl.textContent = "Name already taken by another player. Please pick another: " + error.message;
-      return;
-    }
-
-    document.getElementById("firstTimeDiscordModal").classList.remove("active");
-    location.reload();
   });
 }

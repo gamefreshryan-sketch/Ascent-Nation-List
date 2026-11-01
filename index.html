@@ -28,11 +28,11 @@
       <nav class="nav-links">
         <button class="nav-btn active" data-tab="main">Main (1-50)</button>
         <button class="nav-btn" data-tab="extended">Extended (51+)</button>
+        <button class="nav-btn" data-tab="open">🔓 Open Verification</button>
         <button class="nav-btn" data-tab="leaderboard">Leaderboard</button>
         <button class="nav-btn" data-tab="submit">Submit</button>
         <button class="nav-btn" data-tab="rules">Rules</button>
         <button class="nav-btn" data-tab="about">About Us</button>
-        <!-- Profile Tab Button (Hidden by default when logged out) -->
         <button class="nav-btn" id="profileTabBtn" data-tab="profile" style="display: none;">👤 Profile</button>
 
         <!-- STREAMLINED MODERATOR DROPDOWN -->
@@ -70,12 +70,12 @@
   <!-- MAIN CONTAINER -->
   <main class="container">
     
-    <!-- VIEW: LIST VIEW -->
+    <!-- VIEW: LIST VIEW (MAIN & EXTENDED) -->
     <section id="listView" class="tab-content active">
       <div class="list-layout">
         <aside class="sidebar">
           <div class="search-box">
-            <input type="text" id="searchInput" placeholder="Search level, creator, verifier..." maxlength="60">
+            <input type="text" id="searchInput" placeholder="Search by name, creator, verifier or GD ID..." maxlength="60">
           </div>
           <div id="levelList" class="level-items-container">
             <div class="loading">Loading levels from database...</div>
@@ -84,6 +84,28 @@
 
         <article class="level-detail-pane" id="levelDetails">
           <div class="loading">Select a level...</div>
+        </article>
+      </div>
+    </section>
+
+    <!-- VIEW: OPEN VERIFICATION SPACE -->
+    <section id="openListView" class="tab-content">
+      <div class="list-layout">
+        <aside class="sidebar">
+          <div class="open-banner-header">
+            <h3>🔓 Open for Verification</h3>
+            <p>Unverified levels open to the public. Be the first to verify and place them on the ANL!</p>
+          </div>
+          <div class="search-box">
+            <input type="text" id="openSearchInput" placeholder="Search open levels or GD ID..." maxlength="60">
+          </div>
+          <div id="openLevelList" class="level-items-container">
+            <div class="loading">Loading open levels...</div>
+          </div>
+        </aside>
+
+        <article class="level-detail-pane" id="openLevelDetails">
+          <div class="loading">Select an open level...</div>
         </article>
       </div>
     </section>
@@ -127,27 +149,50 @@
           <label for="subType">Submission Type</label>
           <select id="subType" required>
             <option value="completion">Completion / Progress (Level already on List)</option>
-            <option value="verification">Verification (Brand new level not yet on the List)</option>
+            <option value="open_run">Open Verification Run (Progress > WR or 100% Verification)</option>
+            <option value="verification">New Level Proposal / Verifier Submit</option>
           </select>
 
-          <!-- FIELD SET: COMPLETION / PROGRESS -->
+          <!-- FIELD SET: COMPLETION / PROGRESS ON LIST -->
           <div id="fieldGroupCompletion">
-            <label for="subLevelSelect">Select Existing Level</label>
+            <label for="subLevelSelect">Select Level on List</label>
             <select id="subLevelSelect"></select>
 
             <label for="subPercentage">Percentage Achieved (%)</label>
             <input type="number" id="subPercentage" min="1" max="100" value="100">
           </div>
 
+          <!-- FIELD SET: OPEN VERIFICATION RUN -->
+          <div id="fieldGroupOpen" style="display: none; background: rgba(245, 158, 11, 0.05); padding: 16px; border-radius: 8px; border: 1px dashed var(--accent-gold); margin-bottom: 16px;">
+            <h4 style="color: var(--accent-gold); margin-bottom: 8px;">🔓 Open Verification Record</h4>
+            <p class="text-muted" style="font-size:0.82rem; margin-bottom: 12px;">
+              Progress runs must exceed the current World Record. Completing 100% will verify the level and transfer it onto the ANL!
+            </p>
+
+            <label for="subOpenSelect">Select Open Level</label>
+            <select id="subOpenSelect"></select>
+
+            <div id="subOpenWrNotice" class="open-wr-banner" style="margin-bottom: 12px;"></div>
+
+            <label for="subOpenPercentage">Percentage Achieved (%)</label>
+            <input type="number" id="subOpenPercentage" min="1" max="100" value="100">
+          </div>
+
           <!-- FIELD SET: VERIFICATION (MANUAL LEVEL DETAILS) -->
           <div id="fieldGroupVerification" style="display: none; background: rgba(56, 189, 248, 0.05); padding: 16px; border-radius: 8px; border: 1px dashed var(--accent); margin-bottom: 16px;">
-            <h4 style="color: var(--accent); margin-bottom: 10px;">⭐ New Level Information</h4>
+            <h4 style="color: var(--accent); margin-bottom: 10px;">⭐ New Level Details</h4>
 
             <label for="subNewLevelName">Level Name *</label>
             <input type="text" id="subNewLevelName" placeholder="e.g. Tartarus" maxlength="80">
 
             <label for="subNewLevelCreator">Creator(s) *</label>
             <input type="text" id="subNewLevelCreator" placeholder="e.g. Riot & more" maxlength="100">
+
+            <label for="subNewGdId">Geometry Dash Level ID *</label>
+            <input type="text" id="subNewGdId" placeholder="e.g. 102938472 (In-Game Search ID)" pattern="^[0-9]{4,12}$" title="4 to 12 digit GD Level ID">
+
+            <label for="subNewApproxRank">Estimated ANL Placement (e.g. #5, Top 15)</label>
+            <input type="text" id="subNewApproxRank" placeholder="e.g. ~#8 or Top 10" maxlength="30">
 
             <label for="subNewLevelLength">Level Length *</label>
             <input type="text" id="subNewLevelLength" placeholder="e.g. 1m 45s or Long" maxlength="25">
@@ -183,19 +228,19 @@
         <h2>What is ANL?</h2>
         <p><strong>ANL (Ascent Nation List)</strong> is a list of the hardest levels created and verified by members of the Ascent Nation community.</p>
         <hr>
-        <h2>Points & Percentages System</h2>
+        <h2>Points & Open Verification System</h2>
         <ul>
           <li><strong>Main List (#1 - #50):</strong> Levels reward points. Rank #1 awards a maximum base of <strong>350.00 pts</strong>.</li>
           <li><strong>Extended List (#51+):</strong> Records are documented and accepted, but award <strong>0.00 pts</strong>.</li>
-          <li><strong>List Requirement %:</strong> Levels specify a minimum qualifying percentage. Qualifying progress records award between <strong>10% and 50%</strong> of the level's point value.</li>
-          <li><strong>Full Completions (100%):</strong> Award <strong>100%</strong> of the level's points.</li>
+          <li><strong>Open Verification Space:</strong> Unverified levels open to community verification. Contains <strong>0.00 pts</strong> and no minimum requirement until officially verified and placed on the main/extended list!</li>
+          <li><strong>Progress on Open Levels:</strong> Anyone can submit a progress record as long as it surpasses the current World Record (WR).</li>
           <li><strong>Verifier Bonus:</strong> Verifiers receive placement points <strong>PLUS a 20% bonus</strong>!</li>
         </ul>
         <hr>
         <h2>Rules for Submissions</h2>
         <ol>
           <li>The level must be visually interesting. Some sense of investment to building a level is expected.</li>
-          <li>TOP 51+ level submissions will NOT be prioritized. (Still accepted though.)</li>
+          <li>Every level must include a valid <strong>Geometry Dash Level ID</strong>.</li>
           <li>CBF is allowed.</li>
           <li>No physics bypasses or automated inputs.</li>
           <li>Audible clicks/taps and raw unedited footage are required for top-tier records.</li>
@@ -268,7 +313,7 @@
             <div class="philosophy-callout">
               <strong>Our List Philosophy:</strong>
               <p>
-                Levels on ANL <em>do not</em> need to be rated by RobTop, nor do they need to meet standard length criteria (they can be challenges, short levels, or full-length epics). The only universal rule: <strong>It must be verified 100% LEGIT.</strong>
+                Levels on ANL <em>do not</em> need to be rated by RobTop, nor do they need to meet standard length criteria. The only universal rule: <strong>It must be verified 100% LEGIT.</strong>
               </p>
             </div>
           </div>
@@ -458,12 +503,7 @@
           </p>
           <form id="updateDisplayNameForm">
             <label for="updateDisplayNameInput">Display Name (Optional, max 30 characters)</label>
-            <input 
-              type="text" 
-              id="updateDisplayNameInput" 
-              maxlength="30" 
-              placeholder="Leave empty to use username"
-            >
+            <input type="text" id="updateDisplayNameInput" maxlength="30" placeholder="Leave empty to use username">
             <div style="display: flex; gap: 10px; align-items: center; margin-top: 4px; flex-wrap: wrap;">
               <button type="submit" class="submit-btn" style="width: auto; padding: 8px 18px;">Save Display Name</button>
               <button type="button" id="resetDisplayNameBtn" class="btn-secondary" style="padding: 8px 14px;">Reset to Username</button>
@@ -494,6 +534,7 @@
             <select id="queueTypeFilter">
               <option value="all">All Types</option>
               <option value="completion">Completions</option>
+              <option value="open_run">Open Runs</option>
               <option value="verification">Verifications</option>
             </select>
             <select id="queueOrderFilter">
@@ -518,6 +559,7 @@
         </div>
 
         <div class="admin-grid">
+          <!-- DIRECT RECORD PLACEMENT -->
           <div class="admin-card">
             <h3>Direct Record Placement</h3>
             <form id="addVictorForm">
@@ -540,6 +582,7 @@
             </form>
           </div>
 
+          <!-- PLACE DIRECT LEVEL ON ANL -->
           <div class="admin-card">
             <h3>Place New Level on ANL</h3>
             <form id="addLevelForm">
@@ -548,6 +591,9 @@
 
               <label for="levelName">Level Name</label>
               <input type="text" id="levelName" placeholder="Level Title" required maxlength="100">
+
+              <label for="levelGdId">Geometry Dash Level ID *</label>
+              <input type="text" id="levelGdId" placeholder="In-game Search ID (e.g. 98765432)" required pattern="^[0-9]{4,12}$">
 
               <label for="levelLength">Level Length</label>
               <input type="text" id="levelLength" placeholder="e.g. 1:15 or 45s" required maxlength="20">
@@ -565,9 +611,45 @@
               <input type="url" id="levelVideo" placeholder="https://youtu.be/..." required>
 
               <label for="levelDescription">Level Description</label>
-              <textarea id="levelDescription" rows="3" placeholder="Brief info about the level..." maxlength="500"></textarea>
+              <textarea id="levelDescription" rows="2" placeholder="Brief info about the level..." maxlength="500"></textarea>
 
               <button type="submit" class="submit-btn">Publish Level</button>
+            </form>
+          </div>
+
+          <!-- ADD OPEN VERIFICATION LEVEL -->
+          <div class="admin-card" style="grid-column: 1 / -1;">
+            <h3 style="color: var(--accent-gold);">🔓 Add Open Verification Level (Community Open)</h3>
+            <form id="addOpenLevelForm" class="admin-grid" style="gap: 12px; margin-bottom: 0;">
+              <div>
+                <label for="openName">Level Name *</label>
+                <input type="text" id="openName" placeholder="Level Title" required maxlength="100">
+
+                <label for="openCreator">Creator(s) *</label>
+                <input type="text" id="openCreator" placeholder="Creator name(s)" required maxlength="100">
+
+                <label for="openGdId">Geometry Dash Level ID *</label>
+                <input type="text" id="openGdId" placeholder="In-Game Search ID (e.g. 102938472)" required pattern="^[0-9]{4,12}$">
+              </div>
+
+              <div>
+                <label for="openApproxRank">Estimated ANL Placement *</label>
+                <input type="text" id="openApproxRank" placeholder="e.g. ~#4 or Top 10" required maxlength="40">
+
+                <label for="openLength">Level Length *</label>
+                <input type="text" id="openLength" placeholder="e.g. 1:20 or Long" required maxlength="25">
+
+                <label for="openVideo">Showcase / Preview Video URL</label>
+                <input type="url" id="openVideo" placeholder="https://youtu.be/...">
+              </div>
+
+              <div style="grid-column: 1 / -1;">
+                <label for="openDesc">Description & Instructions for Verifiers</label>
+                <textarea id="openDesc" rows="2" placeholder="Notes for challengers attempting verification..." maxlength="400"></textarea>
+                <button type="submit" class="submit-btn" style="background: var(--accent-gold); color: #000; margin-top: 6px;">
+                  🔓 Add to Open Verification Space
+                </button>
+              </div>
             </form>
           </div>
         </div>
@@ -579,7 +661,7 @@
       <div class="leaderboard-wrapper" style="max-width: 1000px;">
         <div class="panel-header">
           <h2>🛡️ Moderator Action Audit Logs</h2>
-          <p>Chronological history of approvals, rejections, manual placements, bans, timeouts, and deletions.</p>
+          <p>Chronological history of approvals, promotions, rejections, manual placements, bans, timeouts, and deletions.</p>
         </div>
         <div class="table-responsive">
           <table class="leaderboard-table">
@@ -602,33 +684,37 @@
 
   </main>
 
-  <!-- MODAL: MANUAL ACCEPT -->
+  <!-- MODAL: MANUAL ACCEPT & PROMOTE TO LIST -->
   <div id="manualAcceptModal" class="modal">
     <div class="modal-content modal-large">
       <span class="close-btn" id="closeManualAcceptModal">&times;</span>
-      <h3 style="margin-bottom: 8px; color: var(--accent);">✍️ Manual Accept: Review & Place Level</h3>
+      <h3 style="margin-bottom: 8px; color: var(--accent);">✍️ Manual Accept: Place or Convert Level</h3>
       <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 16px;">
-        Review and customize the exact details before inserting the level and verifier into the database.
+        Assign rank and placement information before officially moving this verified level onto the ANL.
       </p>
 
       <form id="manualAcceptForm">
         <input type="hidden" id="manSubId">
+        <input type="hidden" id="manOpenLevelId">
         
         <div class="admin-grid" style="gap: 12px; margin-bottom: 0;">
           <div>
-            <label for="manRank">Assigned List Rank *</label>
+            <label for="manRank">Assigned ANL Rank *</label>
             <input type="number" id="manRank" min="1" placeholder="e.g. 1" required>
 
             <label for="manName">Level Name *</label>
             <input type="text" id="manName" required maxlength="100">
 
+            <label for="manGdId">Geometry Dash Level ID *</label>
+            <input type="text" id="manGdId" placeholder="In-game search ID" required pattern="^[0-9]{4,12}$">
+
             <label for="manCreator">Creator(s) *</label>
             <input type="text" id="manCreator" required maxlength="100">
-
-            <label for="manVerifier">Verifier Name *</label>
-            <input type="text" id="manVerifier" required maxlength="60">
           </div>
           <div>
+            <label for="manVerifier">Verifier Player Name *</label>
+            <input type="text" id="manVerifier" required maxlength="60">
+
             <label for="manLength">Level Length *</label>
             <input type="text" id="manLength" placeholder="e.g. 1m 24s" required maxlength="25">
 
@@ -647,7 +733,7 @@
         <textarea id="manDesc" rows="2" placeholder="Level notes..." maxlength="400"></textarea>
 
         <button type="submit" class="submit-btn" style="background: var(--accent-gold); color: #000; margin-top: 10px;">
-          ✓ Accept & Place Level on List
+          ✓ Accept & Convert Level to Main List
         </button>
       </form>
     </div>
@@ -665,6 +751,7 @@
       <label for="rejectPreset">Quick Preset</label>
       <select id="rejectPreset" style="margin-bottom: 12px;">
         <option value="">-- Choose Preset or Write Below --</option>
+        <option value="Progress does not exceed current Open Level WR.">Progress does not beat WR</option>
         <option value="No audible clicks/taps in required section.">No audible clicks/taps</option>
         <option value="Physics bypass or suspected speedhack/botting detected.">Suspected hacking/physics bypass</option>
         <option value="Raw unedited footage is missing or private.">Missing or private raw footage</option>
@@ -726,7 +813,7 @@
     <div class="modal-content">
       <h3 style="color: var(--accent); margin-bottom: 8px;">🎮 Welcome to Ascent Nation List!</h3>
       <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 14px;">
-        Choose your official Geometry Dash player name. This is your permanent list username (you can customize a display name anytime in your profile):
+        Choose your official Geometry Dash player name:
       </p>
 
       <form id="firstTimeDiscordForm">
@@ -735,13 +822,11 @@
           type="text" 
           id="discordPlayerNameInput" 
           placeholder="e.g. Ascent" 
-          pattern="^[a-zA-Z0-9_]{3,20}$"
+          pattern="^[a-zA-Z0-9_]{3,20}$" 
           title="3-20 letters, numbers, underscores" 
           required
         >
-
         <div id="discordPlayerNameError" class="login-error"></div>
-
         <button type="submit" class="submit-btn" style="margin-top: 12px;">Complete Registration</button>
       </form>
     </div>

@@ -1806,3 +1806,91 @@ input:focus, select:focus, textarea:focus {
     transform: rotate(90deg);
   }
 }
+
+/* ==========================================================================
+   GEOMETRY DASH LEVEL ID BADGES & OPEN VERIFICATION STYLES
+   ========================================================================== */
+.gdid-pill {
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  color: #7dd3fc;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.gdid-pill:hover {
+  background: var(--accent);
+  color: #000;
+}
+
+.gdid-badge-btn {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid var(--accent-gold);
+  color: var(--accent-gold);
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.gdid-badge-btn:hover {
+  background: var(--accent-gold);
+  color: #000;
+}
+
+.open-banner-header {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.08), transparent);
+}
+
+.open-banner-header h3 {
+  font-family: var(--font-heading);
+  color: var(--accent-gold);
+  font-size: 1.05rem;
+  margin-bottom: 4px;
+}
+
+.open-banner-header p {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.open-rank-badge {
+  background: rgba(245, 158, 11, 0.18);
+  border: 1px solid var(--accent-gold);
+  color: var(--accent-gold);
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  letter-spacing: 0.5px;
+}
+
+.open-wr-banner {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid var(--accent-gold);
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 0.88rem;
+}
+
+.open-wr-card {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, var(--bg-card) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  padding: 18px 22px;
+  border-radius: var(--radius-md);
+  margin-bottom: 20px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+}
